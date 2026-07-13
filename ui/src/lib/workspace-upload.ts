@@ -1,4 +1,5 @@
 import { ApiError } from '@app/lib/api'
+import { fetchWorkspaceDefaultCwd, writeWorkspaceFile } from '@app/lib/workspace-api'
 
 export interface UploadedAttachment {
   id: string
@@ -25,72 +26,32 @@ function isLikelyText(file: File): boolean {
   )
 }
 
-async function fileToBase64(file: File): Promise<string> {
-  const buf = await file.arrayBuffer()
-  const bytes = new Uint8Array(buf)
-  let binary = ''
-  const chunk = 0x8000
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
-  }
-  return btoa(binary)
+function joinWorkspacePath(cwd: string, fileName: string): string {
+  const separator = cwd.includes('\\') ? '\\' : '/'
+  return `${cwd.replace(/[/\\]+$/, '')}${separator}${fileName}`
 }
 
 /**
- * Upload a file into the workspace (`uploads/…`) via existing REST
- * `POST /api/workspace/upload` (JSON path + content, optional base64).
+ * Upload a text file into the Hermes workspace via `POST /api/fs/write-text`.
  */
 export async function uploadWorkspaceFile(file: File): Promise<UploadedAttachment> {
+  if (!isLikelyText(file)) {
+    throw new ApiError(
+      'Binary uploads are not supported — Hermes write-text accepts UTF-8 text only.',
+      400,
+    )
+  }
+
   const id = crypto.randomUUID()
   const safeName = sanitizeFileName(file.name)
-  const path = `uploads/${Date.now()}-${safeName}`
+  const fileName = `${Date.now()}-${safeName}`
+  const { cwd } = await fetchWorkspaceDefaultCwd()
+  const path = joinWorkspacePath(cwd, fileName)
+  const content = await file.text()
 
-  const useBase64 = !isLikelyText(file)
-  const content = useBase64 ? await fileToBase64(file) : await file.text()
+  await writeWorkspaceFile(path, content)
 
-  const res = await fetch('/api/workspace/upload', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({
-      path,
-      content,
-      ...(useBase64 ? { encoding: 'base64' } : {}),
-    }),
-  })
-
-  if (!res.ok) {
-    // Fallback to PUT /api/workspace/file
-    const put = await fetch('/api/workspace/file', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        path,
-        content,
-        ...(useBase64 ? { encoding: 'base64' } : {}),
-      }),
-    })
-    if (!put.ok) {
-      let message = put.statusText || res.statusText
-      try {
-        const err = (await put.json()) as { message?: string; error?: string }
-        message = err.message ?? err.error ?? message
-      } catch {
-        /* ignore */
-      }
-      throw new ApiError(message || 'Upload failed', put.status)
-    }
-    return { id, name: file.name, path, size: file.size }
-  }
-
-  const body = (await res.json()) as { path?: string; name?: string }
-  return {
-    id,
-    name: body.name ?? file.name,
-    path: body.path ?? path,
-    size: file.size,
-  }
+  return { id, name: file.name, path, size: file.size }
 }
 
 export function formatAttachmentLine(att: UploadedAttachment): string {
