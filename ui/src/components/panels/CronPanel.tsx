@@ -25,6 +25,7 @@ import {
   X,
 } from 'lucide-react'
 import { apiClient } from '@app/lib/api'
+import { createHermesSkill, fetchHermesSkills } from '@app/lib/hermes-skills'
 import { useUiStore } from '@app/stores/ui'
 import { previewCronSchedule } from '@app/lib/panels'
 import {
@@ -199,7 +200,7 @@ function ScheduledCronContent() {
 
   const { data: skills } = useQuery({
     queryKey: ['skills'],
-    queryFn: () => apiClient.get<Skill[]>('/api/skills'),
+    queryFn: fetchHermesSkills,
     retry: false,
   })
 
@@ -540,13 +541,14 @@ function CronWizard({
   })
 
   const createSkill = useMutation({
-    mutationFn: () =>
-      apiClient.post<Skill>('/api/skills', {
-        name: newSkill.name.trim(),
-        description: newSkill.description.trim() || undefined,
-        bodyMd: newSkill.bodyMd.trim() || `# ${newSkill.name.trim()}\n`,
-        source: 'learned',
-      }),
+    mutationFn: () => {
+      const name = newSkill.name.trim()
+      const body = newSkill.bodyMd.trim() || `# ${name}\n`
+      const content = newSkill.description.trim()
+        ? `---\nname: ${name}\ndescription: ${newSkill.description.trim()}\n---\n\n${body}`
+        : `---\nname: ${name}\ndescription: \n---\n\n${body}`
+      return createHermesSkill(name, content)
+    },
     onSuccess: (skill) => {
       addToast({ title: 'Skill created', description: skill.name, variant: 'success' })
       setDraft((d) => ({

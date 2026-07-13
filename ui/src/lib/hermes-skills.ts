@@ -1,29 +1,14 @@
 /**
- * Hermes skills API adapters — maps FastAPI skill shapes to Marko shared DTOs.
+ * Hermes skills API — DB-backed registry (state.db skills_registry table).
+ * GET /api/skills returns complete camelCase rows after disk sync.
  */
-import type { Skill } from '@hermes/shared'
+import type { Skill, SkillsMeta, SkillsSyncResult } from '@hermes/shared'
 import { apiClient } from '@app/lib/api'
-
-export type HermesSkillRow = {
-  name: string
-  description: string
-  category?: string
-  enabled: boolean
-  usage?: number
-  provenance?: 'hub' | 'bundled' | 'agent' | string
-}
 
 export type HermesSkillContent = {
   name: string
   content: string
   path: string
-}
-
-export type HermesSkillWriteResult = {
-  success: boolean
-  message?: string
-  path?: string
-  error?: string
 }
 
 export type HermesActionResponse = {
@@ -71,49 +56,17 @@ export type HermesSkillHubSourcesResponse = {
   installed: Record<string, HermesSkillHubInstalledEntry>
 }
 
-const ISO_NOW = () => new Date().toISOString()
-
-export function hermesProvenanceToSource(
-  provenance: string | undefined,
-): Skill['source'] {
-  switch (provenance) {
-    case 'bundled':
-      return 'builtin'
-    case 'hub':
-      return 'git:hub'
-    default:
-      return 'user-folder'
-  }
-}
-
-export function hermesSkillToDto(
-  row: HermesSkillRow,
-  opts?: { content?: string; path?: string | null },
-): Skill {
-  const name = row.name
-  return {
-    id: name,
-    name,
-    slug: name,
-    description: row.description ?? '',
-    bodyMd: opts?.content ?? '',
-    source: hermesProvenanceToSource(row.provenance),
-    path: opts?.path ?? null,
-    contentHash: null,
-    triggers: null,
-    enabled: row.enabled,
-    lastSyncedAt: null,
-    missingOnDisk: false,
-    usageCount: row.usage ?? 0,
-    successCount: 0,
-    createdAt: ISO_NOW(),
-    updatedAt: ISO_NOW(),
-  }
-}
-
+/** DB row from GET /api/skills — already matches shared Skill DTO. */
 export async function fetchHermesSkills(): Promise<Skill[]> {
-  const rows = await apiClient.get<HermesSkillRow[]>('/api/skills')
-  return rows.map((row) => hermesSkillToDto(row))
+  return apiClient.get<Skill[]>('/api/skills')
+}
+
+export async function fetchHermesSkillsMeta(): Promise<SkillsMeta> {
+  return apiClient.get<SkillsMeta>('/api/skills/meta')
+}
+
+export async function syncHermesSkills(): Promise<SkillsSyncResult> {
+  return apiClient.post<SkillsSyncResult>('/api/skills/sync')
 }
 
 export async function fetchHermesSkillContent(name: string): Promise<HermesSkillContent> {
@@ -124,20 +77,24 @@ export async function toggleHermesSkill(name: string, enabled: boolean): Promise
   await apiClient.put('/api/skills/toggle', { name, enabled })
 }
 
-export async function saveHermesSkillContent(name: string, content: string): Promise<void> {
-  await apiClient.put<HermesSkillWriteResult>('/api/skills/content', { name, content })
+export async function saveHermesSkillContent(name: string, content: string): Promise<Skill> {
+  return apiClient.put<Skill>('/api/skills/content', { name, content })
 }
 
 export async function createHermesSkill(
   name: string,
   content: string,
   category?: string,
-): Promise<void> {
-  await apiClient.post<HermesSkillWriteResult>('/api/skills', {
+): Promise<Skill> {
+  return apiClient.post<Skill>('/api/skills', {
     name,
     content,
     category: category || undefined,
   })
+}
+
+export async function deleteHermesSkill(id: string): Promise<void> {
+  await apiClient.delete(`/api/skills/${encodeURIComponent(id)}`)
 }
 
 export async function uninstallHermesHubSkill(name: string): Promise<HermesActionResponse> {
@@ -172,4 +129,9 @@ export async function installHermesSkillFromHub(
 
 export function isHubInstalledSkill(skill: Pick<Skill, 'source'>): boolean {
   return skill.source === 'git:hub'
+}
+
+/** Map DB skill id for MCP/cron skillIds arrays (stable UUID). */
+export function skillLinkId(skill: Pick<Skill, 'id'>): string {
+  return skill.id
 }

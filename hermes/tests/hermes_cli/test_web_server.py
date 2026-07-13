@@ -4349,45 +4349,46 @@ class TestNewEndpoints:
             assert "enabled" in skills[0]
 
     def test_skills_list_includes_disabled_skills(self, monkeypatch):
-        import tools.skills_tool as skills_tool
         import hermes_cli.skills_config as skills_config
         import hermes_cli.web_server as web_server
+        from hermes_constants import get_hermes_home
 
-        def _fake_find_all_skills(*, skip_disabled=False):
-            if skip_disabled:
-                return [
-                    {"name": "active-skill", "description": "active", "category": "demo"},
-                    {"name": "disabled-skill", "description": "disabled", "category": "demo"},
-                ]
-            return [
-                {"name": "active-skill", "description": "active", "category": "demo"},
-            ]
+        home = get_hermes_home()
+        skills_dir = home / "skills"
+        skills_dir.mkdir(parents=True, exist_ok=True)
 
-        monkeypatch.setattr(skills_tool, "_find_all_skills", _fake_find_all_skills)
-        monkeypatch.setattr(skills_config, "get_disabled_skills", lambda config: {"disabled-skill"})
-        monkeypatch.setattr(web_server, "load_config", lambda: {"skills": {"disabled": ["disabled-skill"]}})
+        def _write(name, desc):
+            d = skills_dir / name
+            d.mkdir(exist_ok=True)
+            (d / "SKILL.md").write_text(
+                f"---\nname: {name}\ndescription: {desc}\n---\n\n# {name}\n",
+                encoding="utf-8",
+            )
+
+        _write("active-skill", "active")
+        _write("disabled-skill", "disabled")
+
+        monkeypatch.setattr(
+            skills_config,
+            "get_disabled_skills",
+            lambda config: {"disabled-skill"},
+        )
+        monkeypatch.setattr(
+            web_server,
+            "load_config",
+            lambda: {"skills": {"disabled": ["disabled-skill"]}},
+        )
 
         resp = self.client.get("/api/skills")
 
         assert resp.status_code == 200
-        assert resp.json() == [
-            {
-                "name": "active-skill",
-                "description": "active",
-                "category": "demo",
-                "enabled": True,
-                "usage": 0,
-                "provenance": "agent",
-            },
-            {
-                "name": "disabled-skill",
-                "description": "disabled",
-                "category": "demo",
-                "enabled": False,
-                "usage": 0,
-                "provenance": "agent",
-            },
-        ]
+        by_name = {row["name"]: row for row in resp.json()}
+        assert "active-skill" in by_name
+        assert "disabled-skill" in by_name
+        assert by_name["active-skill"]["enabled"] is True
+        assert by_name["disabled-skill"]["enabled"] is False
+        assert "id" in by_name["active-skill"]
+        assert "bodyMd" in by_name["active-skill"]
 
     def test_toolsets_list(self):
         resp = self.client.get("/api/tools/toolsets")
