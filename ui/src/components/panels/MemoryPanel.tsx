@@ -22,7 +22,7 @@ export function MemoryPanel() {
   const { data: entries, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['memory', kind],
     queryFn: () =>
-      apiClient.get<MemoryEntry[]>('/api/memory', kind !== 'all' ? { kind } : undefined),
+      apiClient.get<MemoryEntry[]>('/api/memory/entries', kind !== 'all' ? { kind } : undefined),
     retry: false,
   })
 
@@ -57,7 +57,7 @@ export function MemoryPanel() {
 
   const save = useMutation({
     mutationFn: () =>
-      apiClient.patch<MemoryEntry>(`/api/memory/${editing!.id}`, {
+      apiClient.patch<MemoryEntry>(`/api/memory/entries/${editing!.id}`, {
         content: editContent,
         importance: editImportance,
       }),
@@ -70,7 +70,7 @@ export function MemoryPanel() {
   })
 
   const remove = useMutation({
-    mutationFn: (id: string) => apiClient.delete(`/api/memory/${id}`),
+    mutationFn: (id: string) => apiClient.delete(`/api/memory/entries/${id}`),
     onSuccess: () => {
       addToast({ title: 'Memory deleted', variant: 'success' })
       void queryClient.invalidateQueries({ queryKey: ['memory'] })
@@ -86,7 +86,7 @@ export function MemoryPanel() {
           <Search size={14} className="absolute left-2 top-2.5 text-fg-muted" />
           <input
             type="text"
-            placeholder="What does Open Jarvis know about…"
+            placeholder="What does Hermes know about…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="w-full rounded border border-border bg-canvas py-1.5 pl-7 pr-2 text-sm text-fg"
@@ -164,8 +164,8 @@ export function MemoryPanel() {
           title={query.length > 2 ? 'No matches' : 'No memories'}
           description={
             query.length > 2
-              ? 'Open Jarvis found nothing for that query.'
-              : "Open Jarvis hasn't stored any memories yet."
+              ? 'Hermes found nothing for that query.'
+              : "Hermes hasn't stored any memories yet."
           }
         />
       ) : (

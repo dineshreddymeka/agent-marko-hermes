@@ -98,14 +98,14 @@ describe('A2UI action round-trips', () => {
     expect(calls.some((c) => c.url.includes('/agui') && c.init?.method === 'POST')).toBe(true)
   })
 
-  test('save memory posts /api/memory', async () => {
+  test('save memory posts /api/memory/entries', async () => {
     const { sendA2UIAction } = await import('../src/lib/a2ui/actions')
     await sendA2UIAction('surf-2', 'save', {
       kind: 'semantic',
       content: 'prefers dark mode',
       importance: 0.8,
     })
-    expect(calls.some((c) => c.url.includes('/api/memory') && c.init?.method === 'POST')).toBe(true)
+    expect(calls.some((c) => c.url.includes('/api/memory/entries') && c.init?.method === 'POST')).toBe(true)
   })
 
   test('save memory with entryId patches existing row', async () => {
@@ -117,9 +117,9 @@ describe('A2UI action round-trips', () => {
       importance: 0.9,
     })
     const patch = calls.find(
-      (c) => c.url.includes('/api/memory/mem-42') && c.init?.method === 'PATCH',
+      (c) => c.url.includes('/api/memory/entries/mem-42') && c.init?.method === 'PATCH',
     )
     expect(patch).toBeTruthy()
-    expect(calls.some((c) => c.url === '/api/memory' && c.init?.method === 'POST')).toBe(false)
+    expect(calls.some((c) => c.url === '/api/memory/entries' && c.init?.method === 'POST')).toBe(false)
   })
 })
