@@ -2,14 +2,13 @@
  * Security hygiene unit tests — regressions enterprise scanners often flag.
  * Local only; not wired into GitHub Actions security jobs.
  */
-import { describe, expect, test, mock, beforeEach, afterEach } from 'bun:test'
+import { describe, expect, test, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { useSessionsStore } from '../src/stores/sessions'
 import { useUiStore } from '../src/stores/ui'
 
-const appRoot = join(import.meta.dir, '..')
-const repoRoot = join(appRoot, '..')
+const appRoot = join(import.meta.dirname, '..')
 
 describe('ToolCallCard XSS hygiene', () => {
   test('source does not call dangerouslySetInnerHTML', () => {
@@ -38,7 +37,7 @@ describe('CommandPalette persisted session', () => {
       writable: true,
       value: { location: { origin: 'http://localhost' } },
     })
-    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
       calls.push({ url, init })
       return new Response(
@@ -86,9 +85,11 @@ describe('CommandPalette persisted session', () => {
   })
 })
 
-describe('repo path jail source still present', () => {
-  test('cowork task exports resolveAllowedSourcePath', () => {
-    const src = readFileSync(join(repoRoot, 'server/src/cowork/task.ts'), 'utf8')
-    expect(src).toContain('export function resolveAllowedSourcePath')
+describe('Hermes-direct descope messaging', () => {
+  test('descopedFeatureMessage documents no Bun/Postgres layer', async () => {
+    const { descopedFeatureMessage } = await import('../src/lib/hermes-adapters')
+    const msg = descopedFeatureMessage('Memory panel')
+    expect(msg).toContain('Hermes-direct')
+    expect(msg).not.toContain('localhost:3001')
   })
 })

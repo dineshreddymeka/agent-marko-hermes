@@ -1,4 +1,4 @@
-import { describe, expect, test, mock, beforeEach, afterEach } from 'bun:test'
+import { describe, expect, test, vi, beforeEach, afterEach } from 'vitest'
 import { useUiStore } from '../src/stores/ui'
 
 describe('A2UI action round-trips', () => {
@@ -8,7 +8,7 @@ describe('A2UI action round-trips', () => {
   beforeEach(() => {
     calls = []
     useUiStore.setState({ toasts: [] })
-    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
       calls.push({ url, init })
       return new Response(JSON.stringify({ ok: true, id: 'job-1' }), { status: 201 })

@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { useChatStore } from '../src/stores/chat'
 import { dispatchAguiEvent } from '../src/lib/agui/dispatcher'
 

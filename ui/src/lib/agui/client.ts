@@ -4,7 +4,7 @@ import { dispatchAguiEvent } from '@app/lib/agui/dispatcher'
 import { getFrontendTools } from '@app/lib/agui/frontend-tools'
 import { useAgentStateStore } from '@app/stores/agentState'
 import { useChatStore } from '@app/stores/chat'
-import { apiClient, hermesAuthHeaders } from '@app/lib/api'
+import { apiClient, hermesAuthHeaders, readBasePath } from '@app/lib/api'
 import { fetchHermesMessages } from '@app/lib/hermes-adapters'
 import { generateId } from '@app/lib/utils'
 
@@ -77,12 +77,21 @@ export function startStartupWatchdogForTests(runId: string, timeoutMs: number): 
   return () => globalThis.clearTimeout(timer)
 }
 
+function aguiEndpointUrl(): string {
+  const base = readBasePath()
+  return `${base}/agui`
+}
+
 function getAgent(sessionId: string): HttpAgent {
   if (!agent || agent.threadId !== sessionId) {
     agent = new HttpAgent({
-      url: '/agui',
+      url: aguiEndpointUrl(),
       threadId: sessionId,
-      headers: hermesAuthHeaders(),
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        ...hermesAuthHeaders(),
+      },
     })
     agent.subscribe({
       onEvent: ({ event }) => {
@@ -90,6 +99,12 @@ function getAgent(sessionId: string): HttpAgent {
         useChatStore.getState().recordEvent(JSON.stringify(event))
       },
     })
+  }
+  // Refresh auth token each run (boot may complete after first agent construction).
+  agent.headers = {
+    'Content-Type': 'application/json',
+    Accept: 'text/event-stream',
+    ...hermesAuthHeaders(),
   }
   return agent
 }

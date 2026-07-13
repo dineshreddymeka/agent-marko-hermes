@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { EventType } from '@ag-ui/client'
 import { prepareReplaySession } from '../src/lib/agui/replay'
 import { dispatchAguiEvent } from '../src/lib/agui/dispatcher'

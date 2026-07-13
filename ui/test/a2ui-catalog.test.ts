@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import {
   HERMES_WIDGET_TYPES,
   STANDARD_CATALOG_TYPES,
