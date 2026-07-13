@@ -17113,6 +17113,10 @@ app.include_router(_dashboard_auth_router)
 from hermes_cli.agui_endpoint import router as _agui_router  # noqa: E402
 app.include_router(_agui_router)
 
+# Agent-Marko Memory panel — built-in MEMORY.md / USER.md entries (not pgvector).
+from hermes_cli.marko_memory_api import router as _marko_memory_router  # noqa: E402
+app.include_router(_marko_memory_router)
+
 
 @app.get("/api/marko/boot")
 async def marko_boot(request: Request):

@@ -203,13 +203,13 @@ export async function sendA2UIAction(
         importance: Number(payload.importance ?? 0.5),
       }
       const res = entryId
-        ? await fetch(`/api/memory/${entryId}`, {
+        ? await fetch(`/api/memory/entries/${entryId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             body: JSON.stringify(body),
           })
-        : await fetch('/api/memory', {
+        : await fetch('/api/memory/entries', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
@@ -217,7 +217,7 @@ export async function sendA2UIAction(
           })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
     } else if (action === 'delete' && payload.entryId) {
-      const res = await fetch(`/api/memory/${String(payload.entryId)}`, {
+      const res = await fetch(`/api/memory/entries/${String(payload.entryId)}`, {
         method: 'DELETE',
         credentials: 'include',
       })
