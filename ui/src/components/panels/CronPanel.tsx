@@ -193,7 +193,7 @@ function ScheduledCronContent() {
 
   const { data: mcpData } = useQuery({
     queryKey: ['mcp'],
-    queryFn: () => apiClient.get<{ servers: McpServer[] }>('/api/mcp'),
+    queryFn: () => apiClient.get<{ servers: McpServer[] }>('/api/mcp/servers'),
     retry: false,
   })
   const mcpServers = useMemo(() => mcpData?.servers ?? [], [mcpData])
@@ -526,7 +526,8 @@ function CronWizard({
   const unhealthyServers = (preview?.mcpServers ?? []).filter((s) => !s.healthy)
 
   const testConnection = useMutation({
-    mutationFn: (id: string) => apiClient.post<{ state: { status: string } }>(`/api/mcp/${id}/test`),
+    mutationFn: (id: string) =>
+      apiClient.post<{ state: { status: string } }>(`/api/mcp/servers/${encodeURIComponent(id)}/test`),
     onSuccess: (res) => {
       const statusDisplay = connectionStatusLabel(res.state.status)
       addToast({

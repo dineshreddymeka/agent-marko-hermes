@@ -35,7 +35,7 @@ export function CronSchedulePicker({
 
   useEffect(() => {
     let cancelled = false
-    void fetch('/api/mcp', { credentials: 'include' })
+    void fetch('/api/mcp/servers', { credentials: 'include' })
       .then((r) => (r.ok ? (r.json() as Promise<{ servers: McpServer[] }>) : null))
       .then((data) => {
         if (!cancelled && data?.servers) setMcpServers(data.servers)
