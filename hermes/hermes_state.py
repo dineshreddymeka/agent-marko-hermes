@@ -1401,6 +1401,10 @@ class SessionDB:
 
         cursor.executescript(SCHEMA_SQL)
 
+        from hermes_cli.registry_schema import ensure_registry_schema
+
+        ensure_registry_schema(self._conn)
+
         # ── Declarative column reconciliation ──────────────────────────
         # Diff live tables against SCHEMA_SQL and ADD any missing columns.
         # This is idempotent and self-healing: even if a version-gated

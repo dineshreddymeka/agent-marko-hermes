@@ -189,6 +189,16 @@ async def _lifespan(app: "FastAPI"):
     # the server socket is already open and accepting probes.
     asyncio.get_event_loop().run_in_executor(None, _warm_gateway_module)
 
+    # Index skills/MCP into state.db on first boot (empty tables).
+    try:
+        from hermes_cli.skills_registry import maybe_bootstrap_from_disk
+        from hermes_cli.mcp_registry import maybe_bootstrap_from_config
+
+        maybe_bootstrap_from_disk()
+        maybe_bootstrap_from_config()
+    except Exception:
+        _log.exception("Registry bootstrap failed")
+
     # Desktop-spawned backends (HERMES_DESKTOP=1) fire cron jobs themselves,
     # since the app has no gateway running the scheduler. Server `hermes
     # dashboard` is unaffected — it relies on its own gateway.
@@ -10734,13 +10744,36 @@ async def instantiate_blueprint(body: AutomationBlueprintInstantiate, profile: s
 
 class MCPServerCreate(BaseModel):
     name: str
+    description: Optional[str] = None
     url: Optional[str] = None
     command: Optional[str] = None
     args: List[str] = []
-    # env: KEY=VALUE map for stdio servers (API keys, etc.)
-    env: Dict[str, str] = {}
-    # auth: "oauth" | "header" | None
+    env: Optional[Dict[str, str]] = None
+    headers: Optional[Dict[str, str]] = None
+    transport: Optional[str] = None
+    enabled: Optional[bool] = True
+    httpPreferSse: Optional[bool] = False
+    timeoutMs: Optional[int] = None
+    autoReconnect: Optional[bool] = True
+    metadata: Optional[Dict[str, Any]] = None
     auth: Optional[str] = None
+    profile: Optional[str] = None
+
+
+class MCPServerPatch(BaseModel):
+    description: Optional[str] = None
+    url: Optional[str] = None
+    command: Optional[str] = None
+    args: Optional[List[str]] = None
+    env: Optional[Dict[str, str]] = None
+    headers: Optional[Dict[str, str]] = None
+    transport: Optional[str] = None
+    enabled: Optional[bool] = None
+    httpPreferSse: Optional[bool] = None
+    timeoutMs: Optional[int] = None
+    autoReconnect: Optional[bool] = None
+    toolWhitelist: Optional[List[str]] = None
+    metadata: Optional[Dict[str, Any]] = None
     profile: Optional[str] = None
 
 
@@ -10777,97 +10810,128 @@ def _mcp_server_summary(name: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _resolve_mcp_server(identifier: str):
+    from hermes_cli import mcp_registry
+
+    server = mcp_registry.get_by_id(identifier)
+    if server:
+        return server
+    server = mcp_registry.get_by_name(identifier)
+    if server:
+        return server
+    mcp_registry.sync_from_config_yaml()
+    return mcp_registry.get_by_id(identifier) or mcp_registry.get_by_name(identifier)
+
+
 @app.get("/api/mcp/servers")
 async def list_mcp_servers(profile: Optional[str] = None):
-    from hermes_cli.mcp_config import _get_mcp_servers
+    from hermes_cli import mcp_registry
 
     with _profile_scope(profile):
-        servers = _get_mcp_servers()
-    return {
-        "servers": [
-            _mcp_server_summary(name, cfg) for name, cfg in sorted(servers.items())
-        ]
-    }
+        mcp_registry.maybe_bootstrap_from_config()
+        servers = mcp_registry.list_all()
+    return {"servers": servers, "states": []}
+
+
+@app.get("/api/mcp")
+async def list_mcp_compat(profile: Optional[str] = None):
+    """Legacy alias for cron panel — returns servers without live states."""
+    data = await list_mcp_servers(profile=profile)
+    return {"servers": data["servers"]}
 
 
 @app.post("/api/mcp/servers")
 async def add_mcp_server(body: MCPServerCreate, profile: Optional[str] = None):
-    from hermes_cli.mcp_config import _get_mcp_servers, _save_mcp_server
+    from hermes_cli import mcp_registry
 
     name = (body.name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Server name is required")
-    with _profile_scope(body.profile or profile):
-        existing = _get_mcp_servers()
-    if name in existing:
-        raise HTTPException(status_code=409, detail=f"Server '{name}' already exists")
     if not body.url and not body.command:
         raise HTTPException(
             status_code=400,
             detail="Provide either a URL (HTTP/SSE server) or a command (stdio server)",
         )
-
-    server_config: Dict[str, Any] = {}
-    if body.url:
-        server_config["url"] = body.url.strip()
-    if body.command:
-        server_config["command"] = body.command.strip()
-        if body.args:
-            server_config["args"] = list(body.args)
-    if body.env:
-        server_config["env"] = dict(body.env)
-    if body.auth:
-        server_config["auth"] = body.auth
-
     try:
         with _profile_scope(body.profile or profile):
-            if not _save_mcp_server(name, server_config):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Server '{name}' rejected: suspicious command/args configuration",
-                )
-    except HTTPException:
-        raise
+            server = mcp_registry.create_server(body.model_dump(exclude_none=True))
+    except ValueError as exc:
+        msg = str(exc)
+        status = 409 if "already exists" in msg else 400
+        if status == 400 and "rejected" not in msg.lower():
+            msg = f"Server '{name}' was NOT saved (rejected): {msg}"
+        raise HTTPException(status_code=status, detail=msg) from exc
     except Exception as exc:
         _log.exception("POST /api/mcp/servers failed")
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return server
 
-    return _mcp_server_summary(name, server_config)
+
+@app.patch("/api/mcp/servers/{server_id}")
+async def patch_mcp_server(
+    server_id: str, body: MCPServerPatch, profile: Optional[str] = None
+):
+    from hermes_cli import mcp_registry
+
+    with _profile_scope(body.profile or profile):
+        existing = _resolve_mcp_server(server_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Server not found")
+        try:
+            server = mcp_registry.update_server(
+                existing["id"], body.model_dump(exclude_none=True)
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    return server
 
 
 @app.put("/api/mcp/servers")
 async def replace_mcp_servers(body: MCPServersReplace, profile: Optional[str] = None):
-    """Replace the entire ``mcp_servers`` map (the GUI mcp.json editor's save).
-
-    The generic ``/api/config`` endpoint deep-merges maps, so it can never
-    delete a server key, drop an ``enabled: false`` flag, or remove a nested
-    field — edits looked saved but the stale entry survived on disk.  This
-    endpoint sets the whole map so removals actually persist.  Storage stays
-    the config.yaml ``mcp_servers`` key the CLI/TUI already read.
-    """
+    """Replace the entire ``mcp_servers`` map (GUI mcp.json editor save)."""
+    from hermes_cli import mcp_registry
     from hermes_cli.mcp_config import _replace_mcp_servers
 
     with _profile_scope(body.profile or profile):
         ok, issues = _replace_mcp_servers(body.servers)
-    if not ok:
-        raise HTTPException(status_code=400, detail="; ".join(issues))
+        if not ok:
+            raise HTTPException(status_code=400, detail="; ".join(issues))
+        mcp_registry.sync_from_config_yaml()
     return {"ok": True}
 
 
-@app.delete("/api/mcp/servers/{name}")
-async def remove_mcp_server(name: str, profile: Optional[str] = None):
-    from hermes_cli.mcp_config import _remove_mcp_server
+@app.delete("/api/mcp/servers/{server_id}")
+async def remove_mcp_server(server_id: str, profile: Optional[str] = None):
+    from hermes_cli import mcp_registry
 
     with _profile_scope(profile):
-        removed = _remove_mcp_server(name)
+        existing = _resolve_mcp_server(server_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Server not found")
+        removed = mcp_registry.delete_server(existing["id"])
     if not removed:
-        raise HTTPException(status_code=404, detail=f"Server '{name}' not found")
+        raise HTTPException(status_code=404, detail="Server not found")
     return {"ok": True}
 
 
-@app.post("/api/mcp/servers/{name}/test")
-async def test_mcp_server(name: str, profile: Optional[str] = None):
-    """Connect to the server, list its tools, disconnect.  Returns tool list."""
+@app.get("/api/mcp/servers/{server_id}/events")
+async def list_mcp_server_events(server_id: str, profile: Optional[str] = None):
+    from hermes_cli import mcp_registry
+
+    with _profile_scope(profile):
+        existing = _resolve_mcp_server(server_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Server not found")
+        events = mcp_registry.list_connection_events(existing["id"])
+    return {"events": events}
+
+
+@app.post("/api/mcp/servers/{server_id}/test")
+async def test_mcp_server(server_id: str, profile: Optional[str] = None):
+    """Connect to the server, list tools, persist status + connection event."""
+    from hermes_cli import mcp_registry
     from hermes_cli.mcp_config import (
         _get_mcp_servers,
         _oauth_tokens_present,
@@ -10875,54 +10939,104 @@ async def test_mcp_server(name: str, profile: Optional[str] = None):
     )
 
     with _profile_scope(profile):
+        existing = _resolve_mcp_server(server_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Server not found")
+        name = existing["name"]
         servers = _get_mcp_servers()
-    if name not in servers:
-        raise HTTPException(status_code=404, detail=f"Server '{name}' not found")
+        if name not in servers:
+            mcp_registry.sync_from_config_yaml()
+            servers = _get_mcp_servers()
+        if name not in servers:
+            raise HTTPException(status_code=404, detail=f"Server '{name}' not found")
 
     details: Dict[str, Any] = {}
-    # An `auth: oauth` server that serves tools/list anonymously would probe OK
-    # with no token — a false green. Require a token on disk for it, matching the
-    # /auth verification (some providers don't enforce auth on tools/list).
     needs_oauth_token = servers[name].get("auth") == "oauth"
 
     def _probe_scoped():
-        # Home-only scope (contextvar), NOT _profile_scope. A probe blocks for
-        # as long as the server takes to spawn/connect — a stdio `npx` cold
-        # start is many seconds — and _profile_scope holds a process-global
-        # skills lock for its ENTIRE body. Holding that across the probe
-        # serialized every other endpoint (config/skills/toolsets all take the
-        # same lock), so a slow server made unrelated requests time out at 15s.
-        # The probe touches no skills globals; it only needs the HERMES_HOME
-        # override for .env interpolation + OAuth token resolution, which the
-        # contextvar provides (copied into this to_thread worker; and
-        # _run_on_mcp_loop re-wraps it onto the MCP event-loop thread).
         with _config_profile_scope(profile):
             tools = _probe_single_server(name, servers[name], details=details)
             token_present = _oauth_tokens_present(name) if needs_oauth_token else True
             return tools, token_present
 
     try:
-        # Probe blocks on a dedicated MCP event loop — run in a thread so the
-        # FastAPI event loop is never blocked.
         tools, token_present = await asyncio.to_thread(_probe_scoped)
     except Exception as exc:
+        with _profile_scope(profile):
+            mcp_registry.record_test_result(
+                existing["id"],
+                ok=False,
+                tools=[],
+                error=str(exc),
+            )
+        state = {
+            "serverId": existing["id"],
+            "name": name,
+            "status": "error",
+            "tools": [],
+            "error": str(exc),
+        }
         return {
+            "state": state,
+            "server": mcp_registry.get_by_id(existing["id"]),
             "ok": False,
             "error": str(exc),
             "tools": [],
         }
+
     if not token_present:
+        err = "OAuth authentication required — no token found."
+        with _profile_scope(profile):
+            mcp_registry.record_test_result(
+                existing["id"], ok=False, tools=[], error=err
+            )
+        state = {
+            "serverId": existing["id"],
+            "name": name,
+            "status": "error",
+            "tools": [],
+            "error": err,
+        }
         return {
+            "state": state,
+            "server": mcp_registry.get_by_id(existing["id"]),
             "ok": False,
-            "error": "OAuth authentication required — no token found.",
+            "error": err,
             "tools": [],
         }
+
+    tool_rows = [{"name": t, "description": d} for t, d in tools]
+    transport_kind = "stdio" if servers[name].get("command") else "streamable-http"
+    with _profile_scope(profile):
+        mcp_registry.record_test_result(
+            existing["id"],
+            ok=True,
+            tools=tool_rows,
+            transport_kind=transport_kind,
+        )
+        server = mcp_registry.get_by_id(existing["id"])
+    state = {
+        "serverId": existing["id"],
+        "name": name,
+        "status": "connected",
+        "tools": [t["name"] for t in tool_rows],
+        "transportKind": transport_kind,
+    }
     return {
+        "state": state,
+        "server": server,
         "ok": True,
-        "tools": [{"name": t, "description": d} for t, d in tools],
+        "tools": tool_rows,
         "prompts": details.get("prompts", 0),
         "resources": details.get("resources", 0),
     }
+
+
+@app.post("/api/mcp/{server_id}/test")
+async def test_mcp_server_legacy(server_id: str, profile: Optional[str] = None):
+    """Legacy cron-panel test route."""
+    result = await test_mcp_server(server_id, profile=profile)
+    return {"state": result["state"]}
 
 
 @app.post("/api/mcp/servers/{name}/auth")
@@ -11044,22 +11158,20 @@ class MCPEnabledToggle(BaseModel):
 async def set_mcp_server_enabled(
     name: str, body: MCPEnabledToggle, profile: Optional[str] = None
 ):
-    """Enable or disable an MCP server (takes effect on next session/gateway).
+    """Enable or disable an MCP server (takes effect on next session/gateway)."""
+    from hermes_cli import mcp_registry
 
-    Toggles the ``enabled`` key on the server's config.yaml entry — the same
-    flag the agent reads at startup.  Disabled servers stay in config so they
-    can be re-enabled without re-entering their settings.
-    """
     with _profile_scope(body.profile or profile):
-        cfg = load_config()
-        servers = cfg.get("mcp_servers")
-        if not isinstance(servers, dict) or name not in servers:
+        existing = _resolve_mcp_server(name)
+        if not existing:
             raise HTTPException(status_code=404, detail=f"Server '{name}' not found")
-        if not isinstance(servers[name], dict):
-            raise HTTPException(status_code=400, detail="Malformed server config")
-        servers[name]["enabled"] = bool(body.enabled)
-        save_config(cfg)
-    return {"ok": True, "name": name, "enabled": bool(body.enabled)}
+        try:
+            server = mcp_registry.update_server(
+                existing["id"], {"enabled": bool(body.enabled)}
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "name": name, "enabled": bool(server["enabled"])}
 
 
 @app.get("/api/mcp/catalog")
@@ -13305,56 +13417,21 @@ class SkillToggle(BaseModel):
     profile: Optional[str] = None
 
 
-@app.get("/api/skills")
-async def get_skills(profile: Optional[str] = None):
-    from tools.skills_tool import _find_all_skills
-    from hermes_cli.skills_config import get_disabled_skills
-    from tools.skill_usage import (
-        _read_bundled_manifest_names,
-        _read_hub_installed_names,
-        activity_count,
-        load_usage,
-    )
-    with _profile_scope(profile):
-        config = load_config()
-        disabled = get_disabled_skills(config)
-        skills = _find_all_skills(skip_disabled=True)
-        usage = load_usage()
-        # Set-based provenance (same classification as skill_usage.provenance,
-        # without a per-skill manifest read): hub > bundled > agent, where
-        # "agent" covers agent-authored AND local hand-made skills — the ones
-        # the user may edit/delete from the UI.
-        bundled_names = _read_bundled_manifest_names()
-        hub_names = _read_hub_installed_names()
-    for s in skills:
-        s["enabled"] = s["name"] not in disabled
-        s["usage"] = activity_count(usage.get(s["name"], {}))
-        s["provenance"] = (
-            "hub" if s["name"] in hub_names
-            else "bundled" if s["name"] in bundled_names
-            else "agent"
-        )
-    return skills
-
-
-@app.put("/api/skills/toggle")
-async def toggle_skill(body: SkillToggle, profile: Optional[str] = None):
-    from hermes_cli.skills_config import get_disabled_skills, save_disabled_skills
-    with _profile_scope(body.profile or profile):
-        config = load_config()
-        disabled = get_disabled_skills(config)
-        if body.enabled:
-            disabled.discard(body.name)
-        else:
-            disabled.add(body.name)
-        save_disabled_skills(config, disabled)
-    return {"ok": True, "name": body.name, "enabled": body.enabled}
-
-
-class SkillCreate(BaseModel):
+class SkillCreateBody(BaseModel):
     name: str
-    content: str
+    description: Optional[str] = None
+    bodyMd: Optional[str] = None
+    content: Optional[str] = None  # legacy alias for bodyMd
     category: Optional[str] = None
+    source: Optional[str] = "user-folder"
+    profile: Optional[str] = None
+
+
+class SkillPatchBody(BaseModel):
+    bodyMd: Optional[str] = None
+    description: Optional[str] = None
+    enabled: Optional[bool] = None
+    name: Optional[str] = None
     profile: Optional[str] = None
 
 
@@ -13365,11 +13442,7 @@ class SkillContentUpdate(BaseModel):
 
 
 def _clear_skills_prompt_cache() -> None:
-    """Best-effort: invalidate the skills system-prompt snapshot after a write.
-
-    Mirrors what ``skill_manage`` does so a dashboard-authored skill is picked
-    up by the next session without a manual cache reset.
-    """
+    """Best-effort: invalidate the skills system-prompt snapshot after a write."""
     try:
         from agent.prompt_builder import clear_skills_system_prompt_cache
         clear_skills_system_prompt_cache(clear_snapshot=True)
@@ -13377,12 +13450,79 @@ def _clear_skills_prompt_cache() -> None:
         pass
 
 
+@app.get("/api/skills")
+async def get_skills(profile: Optional[str] = None):
+    from hermes_cli import skills_registry
+
+    with _profile_scope(profile):
+        skills_registry.maybe_bootstrap_from_disk()
+        return skills_registry.list_all()
+
+
+@app.get("/api/skills/meta")
+async def get_skills_meta(profile: Optional[str] = None):
+    from hermes_cli import skills_registry
+
+    with _profile_scope(profile):
+        return skills_registry.get_meta()
+
+
+@app.post("/api/skills/sync")
+async def sync_skills(profile: Optional[str] = None):
+    from hermes_cli import skills_registry
+
+    with _profile_scope(profile):
+        result = skills_registry.sync_from_disk()
+    _clear_skills_prompt_cache()
+    return result
+
+
+@app.get("/api/skills/sources")
+async def list_skill_sources(profile: Optional[str] = None):
+    """Git-backed skill sources configured for this profile."""
+    with _profile_scope(profile):
+        cfg = load_config()
+        sources = cfg.get("skills", {}).get("git_sources") or []
+        if not isinstance(sources, list):
+            sources = []
+    return {"sources": [str(s) for s in sources if s]}
+
+
+@app.post("/api/skills/sources")
+async def add_skill_source(body: Dict[str, Any], profile: Optional[str] = None):
+    url = (body.get("url") or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="url is required")
+    with _profile_scope(profile):
+        cfg = load_config()
+        skills_cfg = cfg.setdefault("skills", {})
+        sources = skills_cfg.setdefault("git_sources", [])
+        if not isinstance(sources, list):
+            sources = []
+            skills_cfg["git_sources"] = sources
+        if url not in sources:
+            sources.append(url)
+        from hermes_cli.config import save_config
+
+        save_config(cfg)
+    return {"ok": True, "url": url}
+
+
 @app.get("/api/skills/content")
 async def get_skill_content(name: str, profile: Optional[str] = None):
     """Return the raw SKILL.md text for a skill, for the dashboard editor."""
-    from tools.skill_manager_tool import _find_skill
+    from hermes_cli import skills_registry
 
     with _profile_scope(profile):
+        skill = skills_registry.get_by_slug(name) or skills_registry.get_by_id(name)
+        if skill:
+            return {
+                "name": skill["name"],
+                "content": skill["bodyMd"],
+                "path": skill.get("path"),
+            }
+        from tools.skill_manager_tool import _find_skill
+
         found = _find_skill(name)
         if not found:
             raise HTTPException(status_code=404, detail=f"Skill '{name}' not found.")
@@ -13396,38 +13536,122 @@ async def get_skill_content(name: str, profile: Optional[str] = None):
         return {"name": name, "content": content, "path": str(skill_md)}
 
 
-@app.post("/api/skills")
-async def create_skill(body: SkillCreate):
-    """Create a new custom skill (SKILL.md) from the dashboard editor.
-
-    Calls the same validated write path as the agent's ``skill_manage``
-    tool (frontmatter validation, name/category validation, size limit,
-    optional security scan) — but bypasses the agent write-approval gate:
-    a write from the authenticated dashboard IS the user acting directly.
-    """
-    from tools.skill_manager_tool import _create_skill
-
-    with _profile_scope(body.profile):
-        result = _create_skill(body.name, body.content, body.category or None)
-    if not result.get("success"):
-        raise HTTPException(status_code=400, detail=result.get("error", "Failed to create skill."))
-    _clear_skills_prompt_cache()
-    return result
-
-
 @app.put("/api/skills/content")
 async def update_skill_content(body: SkillContentUpdate):
     """Replace the SKILL.md of an existing skill (full rewrite) from the editor."""
+    from hermes_cli import skills_registry
     from tools.skill_manager_tool import _edit_skill
 
     with _profile_scope(body.profile):
         result = _edit_skill(body.name, body.content)
-    if not result.get("success"):
-        err = result.get("error", "Failed to update skill.")
-        status = 404 if "not found" in str(err).lower() else 400
-        raise HTTPException(status_code=status, detail=err)
+        if not result.get("success"):
+            err = result.get("error", "Failed to update skill.")
+            status = 404 if "not found" in str(err).lower() else 400
+            raise HTTPException(status_code=status, detail=err)
+        skills_registry.sync_from_disk()
     _clear_skills_prompt_cache()
     return result
+
+
+@app.put("/api/skills/toggle")
+async def toggle_skill(body: SkillToggle, profile: Optional[str] = None):
+    from hermes_cli import skills_registry
+
+    with _profile_scope(body.profile or profile):
+        row = skills_registry.get_by_slug(body.name) or skills_registry.get_by_id(body.name)
+        if not row:
+            from tools.skill_manager_tool import _find_skill
+
+            found = _find_skill(body.name)
+            if not found:
+                raise HTTPException(status_code=404, detail=f"Skill '{body.name}' not found")
+            skills_registry.sync_from_disk()
+            row = skills_registry.get_by_slug(body.name)
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Skill '{body.name}' not found")
+        skills_registry.update_skill(row["id"], enabled=body.enabled)
+    return {"ok": True, "name": body.name, "enabled": body.enabled}
+
+
+@app.post("/api/skills")
+async def create_skill(body: SkillCreateBody):
+    """Create a skill — validated write + DB index + SKILL.md on disk."""
+    from hermes_cli import skills_registry
+    from tools.skill_manager_tool import _create_skill
+
+    content = body.bodyMd or body.content
+    if not content:
+        raise HTTPException(status_code=400, detail="bodyMd or content is required")
+
+    with _profile_scope(body.profile):
+        result = _create_skill(body.name, content, body.category or None)
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Failed to create skill."),
+            )
+        skills_registry.sync_from_disk()
+        if body.bodyMd and not body.content:
+            skill = skills_registry.get_by_slug(body.name)
+            if skill:
+                _clear_skills_prompt_cache()
+                return skill
+    _clear_skills_prompt_cache()
+    return result
+
+
+@app.get("/api/skills/{skill_id}")
+async def get_skill_by_id(skill_id: str, profile: Optional[str] = None):
+    from hermes_cli import skills_registry
+
+    with _profile_scope(profile):
+        skill = skills_registry.get_by_id(skill_id)
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    return skill
+
+
+@app.patch("/api/skills/{skill_id}")
+async def patch_skill(skill_id: str, body: SkillPatchBody, profile: Optional[str] = None):
+    from hermes_cli import skills_registry
+
+    with _profile_scope(body.profile or profile):
+        skill = skills_registry.update_skill(
+            skill_id,
+            body_md=body.bodyMd,
+            description=body.description,
+            enabled=body.enabled,
+            name=body.name,
+        )
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    _clear_skills_prompt_cache()
+    return skill
+
+
+@app.delete("/api/skills/{skill_id}")
+async def delete_skill_by_id(skill_id: str, profile: Optional[str] = None):
+    from hermes_cli import skills_registry
+
+    with _profile_scope(profile):
+        removed = skills_registry.delete_skill(skill_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    _clear_skills_prompt_cache()
+    return {"ok": True}
+
+
+@app.post("/api/skills/{skill_id}/recreate")
+async def recreate_skill(skill_id: str, profile: Optional[str] = None):
+    from hermes_cli import skills_registry
+
+    with _profile_scope(profile):
+        result = skills_registry.recreate_on_disk(skill_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    skill, path = result
+    _clear_skills_prompt_cache()
+    return {"skill": skill, "path": path}
 
 
 @app.get("/api/tools/toolsets")
