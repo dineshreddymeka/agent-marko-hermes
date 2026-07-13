@@ -25,6 +25,7 @@ import {
   X,
 } from 'lucide-react'
 import { apiClient } from '@app/lib/api'
+import { fetchHermesProfiles } from '@app/lib/profiles-api'
 import { useUiStore } from '@app/stores/ui'
 import { previewCronSchedule } from '@app/lib/panels'
 import {
@@ -504,7 +505,7 @@ function CronWizard({
 
   const { data: profiles } = useQuery({
     queryKey: ['profiles'],
-    queryFn: () => apiClient.get<Profile[]>('/api/profiles'),
+    queryFn: fetchHermesProfiles,
     retry: false,
   })
 
