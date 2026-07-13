@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from 'bun:test'
+import { beforeEach, describe, expect, test } from 'vitest'
 import { useChatStore } from '../src/stores/chat'
 
 describe('chat store streaming cleanup', () => {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from 'bun:test'
+import { beforeEach, describe, expect, test } from 'vitest'
 import {
   recoverRunFromStartingStall,
   recoverStaleRunIfNeeded,
@@ -59,7 +59,7 @@ describe('AG-UI startup stall recovery', () => {
     chat.setStage('starting')
 
     const stop = startStartupWatchdogForTests('r-watchdog', 5)
-    await Bun.sleep(20)
+    await new Promise((resolve) => setTimeout(resolve, 20))
     stop()
 
     const state = useChatStore.getState()

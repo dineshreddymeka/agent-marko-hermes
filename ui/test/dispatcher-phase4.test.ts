@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from 'bun:test'
+import { beforeEach, describe, expect, test } from 'vitest'
 import { EventType } from '@ag-ui/client'
 import { dispatchAguiEvent } from '../src/lib/agui/dispatcher'
 import { useChatStore } from '../src/stores/chat'

@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 
 describe('Open Jarvis app smoke', () => {
   test('route tree defines SoT routes', async () => {

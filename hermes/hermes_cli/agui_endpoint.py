@@ -98,6 +98,17 @@ def _history_for_agent(messages: List[AguiMessage]) -> List[Dict[str, Any]]:
     return history
 
 
+def _profile_from_input(input_data: RunAgentInput) -> Optional[str]:
+    props = input_data.forwardedProps or {}
+    if not isinstance(props, dict):
+        return None
+    for key in ("profile", "profileId", "profile_id"):
+        raw = props.get(key)
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    return None
+
+
 def _run_agent_sync(
     *,
     input_data: RunAgentInput,
@@ -109,6 +120,7 @@ def _run_agent_sync(
     message_id = str(uuid.uuid4())
     user_text = _latest_user_text(input_data.messages)
     history = _history_for_agent(input_data.messages)
+    profile = _profile_from_input(input_data)
 
     def emit(event: Dict[str, Any]) -> None:
         if cancel.is_set():
@@ -208,22 +220,12 @@ def _run_agent_sync(
         open_tool_calls.pop(tool_id, None)
 
     try:
-        from hermes_state import SessionDB
+        from hermes_cli.marko_session import ensure_marko_session, open_session_db
         from run_agent import AIAgent
 
-        db = SessionDB()
+        db = open_session_db(profile)
         try:
-            # Ensure session row exists for Marko thread ids.
-            existing = None
-            try:
-                existing = db.get_session(thread_id) if hasattr(db, "get_session") else None
-            except Exception:
-                existing = None
-            if not existing:
-                try:
-                    db.create_session(thread_id, source="marko")
-                except Exception:
-                    _log.debug("session create skipped/failed for %s", thread_id, exc_info=True)
+            ensure_marko_session(db, thread_id, source="marko")
 
             agent = AIAgent(
                 session_id=thread_id,

@@ -4082,39 +4082,19 @@ def create_session_marko(body: MarkoSessionCreate):
     """Create a session row for Agent-Marko UI (source=marko)."""
     import uuid as _uuid
 
+    from hermes_cli.marko_session import ensure_marko_session, marko_session_dto, open_session_db
+
     session_id = (body.id or "").strip() or str(_uuid.uuid4())
     title = (body.title or "New chat").strip() or "New chat"
-    db = _open_session_db_for_profile(body.profile)
+    db = open_session_db(body.profile)
     try:
-        existing = db.get_session(session_id)
-        if not existing:
-            db.create_session(session_id, source="marko")
-        try:
-            db.set_session_title(session_id, title)
-        except Exception:
-            _log.debug("session title update skipped", exc_info=True)
-        row = db.get_session(session_id) or {"id": session_id, "title": title}
-        now_iso = datetime.now(timezone.utc).isoformat()
-        started = row.get("started_at")
-        last = row.get("last_active", started)
-        return {
-            "id": session_id,
-            "title": row.get("title") or title,
-            "groupName": None,
-            "profileId": body.profile,
-            "pinned": False,
-            "archived": bool(row.get("archived")),
-            "createdAt": (
-                datetime.fromtimestamp(started, tz=timezone.utc).isoformat()
-                if isinstance(started, (int, float))
-                else now_iso
-            ),
-            "updatedAt": (
-                datetime.fromtimestamp(last, tz=timezone.utc).isoformat()
-                if isinstance(last, (int, float))
-                else now_iso
-            ),
-        }
+        row = ensure_marko_session(db, session_id, title=title, source="marko")
+        return marko_session_dto(
+            session_id=session_id,
+            row=row,
+            title=title,
+            profile=body.profile,
+        )
     finally:
         db.close()
 
@@ -9887,10 +9867,14 @@ async def rename_session_endpoint(session_id: str, body: SessionRename):
                 raise HTTPException(status_code=400, detail=str(e))
         if body.archived is not None:
             db.set_session_archived(sid, body.archived)
-        result = {"ok": True, "title": db.get_session_title(sid) or ""}
-        if body.archived is not None:
-            result["archived"] = bool(body.archived)
-        return result
+        row = db.get_session(sid) or {"id": sid}
+        from hermes_cli.marko_session import marko_session_dto
+
+        return marko_session_dto(
+            session_id=sid,
+            row=row,
+            profile=body.profile,
+        )
     finally:
         db.close()
 

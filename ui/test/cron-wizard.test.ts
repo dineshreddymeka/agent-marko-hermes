@@ -2,7 +2,7 @@
  * Smart Cron wizard helpers — pure logic units.
  * Author: Dinesh Reddy Meka
  */
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import {
   buildCronPayload,
   draftFromJob,
