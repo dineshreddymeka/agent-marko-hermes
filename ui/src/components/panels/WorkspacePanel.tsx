@@ -13,21 +13,24 @@ import {
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { apiClient } from '@app/lib/api'
 import { useUiStore } from '@app/stores/ui'
 import { isImagePath, isMarkdownPath, langFromPath } from '@app/lib/panels'
 import { highlightCode } from '@app/lib/markdown/shiki-client'
 import { uploadWorkspaceFile } from '@app/lib/workspace-upload'
-import type { WorkspaceGitStatus, WorkspaceTreeResponse } from '@hermes/shared'
+import {
+  fetchWorkspaceDefaultCwd,
+  fetchWorkspaceFile,
+  fetchWorkspaceGitStatus,
+  fetchWorkspaceTree,
+  writeWorkspaceFile,
+} from '@app/lib/workspace-api'
+import type { WorkspaceTreeResponse } from '@hermes/shared'
 import { EmptyState } from '@app/components/common/EmptyState'
 import { Skeleton } from '@app/components/common/Skeleton'
 
-type FilePayload = {
-  path: string
-  content: string | null
-  encoding?: string
-  mime?: string
-  contentBase64?: string
+function workspaceDisplayName(cwd: string): string {
+  const parts = cwd.split(/[/\\]/).filter(Boolean)
+  return parts[parts.length - 1] || cwd
 }
 
 export function WorkspacePanel() {
@@ -36,7 +39,7 @@ export function WorkspacePanel() {
   const setWorkspacePreviewPath = useUiStore((s) => s.setWorkspacePreviewPath)
   const queryClient = useQueryClient()
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState<Set<string>>(new Set(['.']))
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [children, setChildren] = useState<Record<string, WorkspaceTreeResponse['entries']>>({})
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -51,40 +54,52 @@ export function WorkspacePanel() {
   }, [workspacePreviewPath, setWorkspacePreviewPath])
 
   const {
-    data: root,
-    isLoading,
-    isError,
-    error,
-    refetch,
+    data: cwdInfo,
+    isLoading: cwdLoading,
+    isError: cwdError,
+    error: cwdLoadError,
+    refetch: refetchCwd,
   } = useQuery({
-    queryKey: ['workspace-tree', '.'],
-    queryFn: () => apiClient.get<WorkspaceTreeResponse>('/api/workspace/tree', { path: '.' }),
+    queryKey: ['workspace-cwd'],
+    queryFn: fetchWorkspaceDefaultCwd,
+    retry: false,
+  })
+
+  const rootPath = cwdInfo?.cwd
+
+  useEffect(() => {
+    if (!rootPath) return
+    setExpanded((current) => (current.size ? current : new Set([rootPath])))
+  }, [rootPath])
+
+  const {
+    data: root,
+    isLoading: treeLoading,
+    isError: treeError,
+    error: treeLoadError,
+    refetch: refetchTree,
+  } = useQuery({
+    queryKey: ['workspace-tree', rootPath],
+    queryFn: () => fetchWorkspaceTree(rootPath!),
+    enabled: !!rootPath,
     retry: false,
   })
 
   const { data: git } = useQuery({
-    queryKey: ['workspace-git'],
-    queryFn: () => apiClient.get<WorkspaceGitStatus>('/api/workspace/git-status'),
+    queryKey: ['workspace-git', rootPath],
+    queryFn: () => fetchWorkspaceGitStatus(rootPath!),
+    enabled: !!rootPath,
     retry: false,
     refetchInterval: 30_000,
   })
 
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => apiClient.get<Record<string, unknown>>('/api/settings'),
-    staleTime: 60_000,
-    retry: false,
-  })
-  const workspaceRoot =
-    typeof settings?.workspace_root === 'string' ? settings.workspace_root : null
-
   useEffect(() => {
-    if (root) setChildren((c) => ({ ...c, '.': root.entries }))
-  }, [root])
+    if (root && rootPath) setChildren((current) => ({ ...current, [rootPath]: root.entries }))
+  }, [root, rootPath])
 
   const loadDir = async (path: string) => {
-    const data = await apiClient.get<WorkspaceTreeResponse>('/api/workspace/tree', { path })
-    setChildren((c) => ({ ...c, [path]: data.entries }))
+    const data = await fetchWorkspaceTree(path)
+    setChildren((current) => ({ ...current, [path]: data.entries }))
   }
 
   const {
@@ -93,8 +108,7 @@ export function WorkspacePanel() {
     isError: fileError,
   } = useQuery({
     queryKey: ['workspace-file', selectedPath],
-    queryFn: () =>
-      apiClient.get<FilePayload>('/api/workspace/file', { path: selectedPath! }),
+    queryFn: () => fetchWorkspaceFile(selectedPath!),
     enabled: !!selectedPath,
     retry: false,
   })
@@ -110,13 +124,12 @@ export function WorkspacePanel() {
   }, [fileContent, selectedPath])
 
   const save = useMutation({
-    mutationFn: () =>
-      apiClient.put('/api/workspace/file', { path: selectedPath, content: draft }),
+    mutationFn: () => writeWorkspaceFile(selectedPath!, draft),
     onSuccess: () => {
       addToast({ title: 'File saved', variant: 'success' })
       setEditing(false)
       void queryClient.invalidateQueries({ queryKey: ['workspace-file', selectedPath] })
-      void queryClient.invalidateQueries({ queryKey: ['workspace-git'] })
+      void queryClient.invalidateQueries({ queryKey: ['workspace-git', rootPath] })
     },
     onError: (err) =>
       addToast({
@@ -130,10 +143,15 @@ export function WorkspacePanel() {
     mutationFn: (file: File) => uploadWorkspaceFile(file),
     onSuccess: () => {
       addToast({ title: 'Upload complete', variant: 'success' })
-      void refetch()
-      void queryClient.invalidateQueries({ queryKey: ['workspace-git'] })
+      void refetchTree()
+      void queryClient.invalidateQueries({ queryKey: ['workspace-git', rootPath] })
     },
-    onError: () => addToast({ title: 'Upload failed', variant: 'danger' }),
+    onError: (err) =>
+      addToast({
+        title: 'Upload failed',
+        description: err instanceof Error ? err.message : undefined,
+        variant: 'danger',
+      }),
   })
 
   const download = () => {
@@ -145,19 +163,16 @@ export function WorkspacePanel() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = selectedPath.split('/').pop() ?? 'file'
+    a.download = selectedPath.split(/[/\\]/).pop() ?? 'file'
     a.click()
     URL.revokeObjectURL(url)
   }
 
-  const dirtySet = useMemo(() => {
-    const set = new Set<string>()
-    for (const line of git?.files ?? []) {
-      const path = line.replace(/^[ MADRCU?!]{1,2}\s+/, '').trim()
-      if (path) set.add(path)
-    }
-    return set
-  }, [git])
+  const dirtySet = useMemo(() => new Set(git?.files ?? []), [git])
+
+  const isLoading = cwdLoading || (!!rootPath && treeLoading)
+  const isError = cwdError || treeError || !rootPath || !root
+  const error = cwdLoadError ?? treeLoadError
 
   if (isLoading) {
     return (
@@ -168,17 +183,24 @@ export function WorkspacePanel() {
     )
   }
 
-  if (isError || !root) {
+  if (isError || !root || !rootPath) {
     return (
       <EmptyState
         title="Workspace unavailable"
         description={
           error instanceof Error
             ? error.message
-            : 'Open Jarvis could not browse the workspace root.'
+            : 'Hermes could not browse the workspace root.'
         }
         action={
-          <button type="button" onClick={() => void refetch()} className="text-xs text-accent">
+          <button
+            type="button"
+            onClick={() => {
+              void refetchCwd()
+              void refetchTree()
+            }}
+            className="text-xs text-accent"
+          >
             Retry
           </button>
         }
@@ -189,14 +211,12 @@ export function WorkspacePanel() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2 text-xs">
-        {workspaceRoot ? (
-          <span
-            className="max-w-[min(100%,28rem)] truncate font-mono text-[10px] text-fg-muted"
-            title={workspaceRoot}
-          >
-            {workspaceRoot}
-          </span>
-        ) : null}
+        <span
+          className="max-w-[min(100%,28rem)] truncate font-mono text-[10px] text-fg-muted"
+          title={rootPath}
+        >
+          {rootPath}
+        </span>
         {git?.isRepo ? (
           <span
             className={`inline-flex items-center gap-1 rounded px-2 py-0.5 ${
@@ -231,9 +251,9 @@ export function WorkspacePanel() {
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <div className="w-full shrink-0 overflow-y-auto border-b border-border p-2 md:w-64 md:border-b-0 md:border-r">
           <TreeBranch
-            path="."
-            name="workspace"
-            entries={children['.'] ?? []}
+            path={rootPath}
+            name={workspaceDisplayName(rootPath)}
+            entries={children[rootPath] ?? []}
             expanded={expanded}
             childrenMap={children}
             dirtySet={dirtySet}
@@ -261,7 +281,7 @@ export function WorkspacePanel() {
                     <button
                       type="button"
                       onClick={() => {
-                        setEditing((e) => !e)
+                        setEditing((value) => !value)
                         setDraft(fileContent?.content ?? '')
                       }}
                       className="rounded p-1 text-fg-muted hover:bg-canvas-subtle"
