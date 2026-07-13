@@ -9,7 +9,8 @@ import { AlertTriangle, ChevronDown, ChevronRight, ExternalLink, Info, RefreshCw
 import { McpSubPanel } from '@app/components/panels/McpSubPanel'
 import { EmptyState } from '@app/components/common/EmptyState'
 import { Skeleton } from '@app/components/common/Skeleton'
-import { apiClient } from '@app/lib/api'
+import { apiClient, ApiError } from '@app/lib/api'
+import { descopedFeatureMessage } from '@app/lib/hermes-adapters'
 import {
   CAPABILITIES_QUERY_KEY,
   isAgentLlmDegraded,
@@ -86,7 +87,13 @@ function CoworkSection() {
     retry: false,
   })
 
+  const descoped =
+    isError && error instanceof ApiError && (error.status === 404 || error.status === 501)
+
   if (isLoading) return <Skeleton className="h-16 w-full" />
+  if (descoped) {
+    return <ManifestNotice message={descopedFeatureMessage('Cowork')} />
+  }
   if (isError) {
     return (
       <EmptyState
@@ -378,7 +385,7 @@ export function ConnectionsPanel() {
       {isLoading ? <Skeleton className="h-12 w-full" /> : null}
 
       {manifestUnavailable ? (
-        <ManifestNotice message="Capability manifest is not available yet (/api/capabilities). MCP and Cowork sections below still work." />
+        <ManifestNotice message="Capability manifest is not available yet (/api/capabilities). The MCP section below still works; Cowork shows here only when the backend exposes /api/cowork/setup." />
       ) : null}
 
       {isError ? (

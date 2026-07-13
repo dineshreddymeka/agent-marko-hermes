@@ -21,6 +21,17 @@ import {
   X,
 } from 'lucide-react'
 import { apiClient } from '@app/lib/api'
+import {
+  createHermesMcpServer,
+  deleteHermesMcpServer,
+  fetchHermesMcpServers,
+  hermesMcpCreateBody,
+  hermesMcpNextToolWhitelist,
+  setHermesMcpServerEnabled,
+  setHermesMcpServerTools,
+  testHermesMcpServer,
+  type HermesMcpLiveState,
+} from '@app/lib/hermes-adapters'
 import { useUiStore } from '@app/stores/ui'
 import { formatRelativeTime } from '@app/lib/utils'
 import { labelTitle } from '@app/lib/display-names'
@@ -100,22 +111,12 @@ const BEST_MCP_PRESETS: McpPreset[] = [
 ]
 
 function presetCreateBody(preset: McpPreset) {
-  return {
+  return hermesMcpCreateBody({
     name: preset.name,
-    description: preset.description,
     transport: preset.transport,
     command: preset.transport === 'stdio' ? (preset.command ?? null) : null,
     url: preset.transport === 'http' ? (preset.url ?? null) : null,
-    enabled: true,
-    httpPreferSse: preset.transport === 'http' ? Boolean(preset.httpPreferSse) : false,
-    timeoutMs: preset.timeoutMs ?? 60_000,
-    autoReconnect: preset.autoReconnect !== false,
-    metadata: {
-      presetId: preset.id,
-      presetBadge: preset.badge,
-      source: 'best-options',
-    },
-  }
+  })
 }
 
 function toastFromCreatedServer(
@@ -145,19 +146,7 @@ function toastFromCreatedServer(
   })
 }
 
-type McpState = {
-  serverId: string
-  name: string
-  status: 'connected' | 'disconnected' | 'error' | 'reconnecting'
-  tools: string[]
-  resources?: string[]
-  prompts?: string[]
-  transportKind?: 'stdio' | 'streamable-http' | 'sse'
-  error?: string
-}
-
-type McpListResponse = { servers: McpServer[]; states: McpState[] }
-type McpTestResponse = { state: McpState; server: McpServer | null }
+type McpState = HermesMcpLiveState
 type StatusFilter = 'all' | 'connected' | 'error' | 'disconnected' | 'disabled'
 type ResolvedStatus = ReturnType<typeof resolveStatus>
 
@@ -384,7 +373,7 @@ export function McpSubPanel({ embedded = false }: { embedded?: boolean }) {
 
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['mcp-servers'],
-    queryFn: () => apiClient.get<McpListResponse>('/api/mcp/servers'),
+    queryFn: fetchHermesMcpServers,
     retry: false,
     refetchInterval: (q) => {
       const states = q.state.data?.states ?? []
@@ -457,13 +446,13 @@ export function McpSubPanel({ embedded = false }: { embedded?: boolean }) {
 
   const toggle = useMutation({
     mutationFn: (server: McpServer) =>
-      apiClient.patch<McpServer>(`/api/mcp/servers/${server.id}`, { enabled: !server.enabled }),
+      setHermesMcpServerEnabled(server.name, !server.enabled),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['mcp-servers'] }),
     onError: () => addToast({ title: 'Update failed', variant: 'danger' }),
   })
 
   const remove = useMutation({
-    mutationFn: (id: string) => apiClient.delete(`/api/mcp/servers/${id}`),
+    mutationFn: (id: string) => deleteHermesMcpServer(id),
     onSuccess: () => {
       addToast({ title: 'Server removed', variant: 'success' })
       void queryClient.invalidateQueries({ queryKey: ['mcp-servers'] })
@@ -472,8 +461,7 @@ export function McpSubPanel({ embedded = false }: { embedded?: boolean }) {
   })
 
   const test = useMutation({
-    mutationFn: (id: string) =>
-      apiClient.post<McpTestResponse>(`/api/mcp/servers/${id}/test`),
+    mutationFn: (id: string) => testHermesMcpServer(id),
     onSuccess: (res) => {
       setTestResult((m) => ({ ...m, [res.state.serverId]: res.state }))
       addToast({
@@ -488,14 +476,17 @@ export function McpSubPanel({ embedded = false }: { embedded?: boolean }) {
   })
 
   const toggleTool = useMutation({
-    mutationFn: ({ server, tool }: { server: McpServer; tool: string }) => {
-      const current = server.toolWhitelist ?? []
-      const next = current.includes(tool)
-        ? current.filter((t) => t !== tool)
-        : [...current, tool]
-      return apiClient.patch<McpServer>(`/api/mcp/servers/${server.id}`, {
-        toolWhitelist: next.length ? next : null,
-      })
+    mutationFn: ({
+      server,
+      tool,
+      allTools,
+    }: {
+      server: McpServer
+      tool: string
+      allTools: string[]
+    }) => {
+      const next = hermesMcpNextToolWhitelist(server.toolWhitelist, tool, allTools)
+      return setHermesMcpServerTools(server.name, next)
     },
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['mcp-servers'] }),
   })
@@ -503,7 +494,7 @@ export function McpSubPanel({ embedded = false }: { embedded?: boolean }) {
   const addBestOption = useMutation({
     mutationFn: async (preset: McpPreset) => {
       setCreatingPresetId(preset.id)
-      return apiClient.post<McpServer>('/api/mcp/servers', presetCreateBody(preset))
+      return createHermesMcpServer(presetCreateBody(preset))
     },
     onSuccess: (server) => {
       toastFromCreatedServer(server, addToast)
@@ -892,7 +883,10 @@ export function McpSubPanel({ embedded = false }: { embedded?: boolean }) {
                           hint="Check to allowlist for agent use"
                         >
                           {tools.map((tool) => {
-                            const on = server.toolWhitelist?.includes(tool) ?? false
+                            const on =
+                              server.toolWhitelist == null
+                                ? true
+                                : server.toolWhitelist.includes(tool)
                             const toolDisplay = toolLabel(tool)
                             return (
                               <label
@@ -902,7 +896,9 @@ export function McpSubPanel({ embedded = false }: { embedded?: boolean }) {
                                 <input
                                   type="checkbox"
                                   checked={on}
-                                  onChange={() => toggleTool.mutate({ server, tool })}
+                                  onChange={() =>
+                                    toggleTool.mutate({ server, tool, allTools: tools })
+                                  }
                                 />
                                 <span
                                   className="truncate text-fg-muted"
@@ -1078,20 +1074,15 @@ function McpServerForm({
     }
     setSaving(true)
     try {
-      const server = await apiClient.post<McpServer>('/api/mcp/servers', {
-        name,
-        description: description.trim() || null,
-        transport,
-        command: transport === 'stdio' ? command : null,
-        url: transport === 'http' ? url : null,
-        env,
-        headers,
-        enabled: true,
-        httpPreferSse: transport === 'http' ? httpPreferSse : false,
-        timeoutMs: timeout,
-        autoReconnect,
-        metadata: { source: 'custom' },
-      })
+      const server = await createHermesMcpServer(
+        hermesMcpCreateBody({
+          name: name.trim(),
+          transport,
+          command: transport === 'stdio' ? command : null,
+          url: transport === 'http' ? url : null,
+          env,
+        }),
+      )
       onSaved(server)
     } catch (err) {
       addToast({
