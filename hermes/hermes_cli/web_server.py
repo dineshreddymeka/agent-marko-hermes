@@ -16975,6 +16975,50 @@ async def marko_boot(request: Request):
     }
 
 
+@app.get("/api/health")
+async def marko_health():
+    """Lightweight health for Agent-Marko status footer / auth gate."""
+    gated = bool(getattr(app.state, "auth_required", False))
+    mock = str(os.environ.get("HERMES_MOCK_LLM", "")).strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    model = None
+    try:
+        from hermes_cli import config as _hermes_config
+
+        cfg = _hermes_config.load_config() if hasattr(_hermes_config, "load_config") else {}
+        if isinstance(cfg, dict):
+            model = (
+                (cfg.get("model") or {}).get("default")
+                if isinstance(cfg.get("model"), dict)
+                else cfg.get("model")
+            )
+            if model is not None:
+                model = str(model)
+    except Exception:
+        model = None
+    return {
+        "ok": True,
+        "authRequired": gated,
+        "backend": "hermes",
+        "llm": {
+            "mode": "mock" if mock else "live",
+            "mock": mock,
+            "model": model,
+        },
+    }
+
+
+@app.get("/api/sessions/{session_id}/live")
+async def marko_session_live(session_id: str):
+    """Marko live-run poll — Hermes AG-UI is request-scoped, so never 'live' after SSE ends."""
+    _ = session_id
+    return {"live": False, "runId": None}
+
+
 mount_spa(app)
 
 

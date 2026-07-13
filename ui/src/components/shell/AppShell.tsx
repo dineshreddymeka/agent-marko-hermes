@@ -13,6 +13,7 @@ import { ErrorBoundary } from '@app/components/common/ErrorBoundary'
 import { useKeyboardShortcuts } from '@app/hooks/useKeyboardShortcuts'
 import { useUiStore, type Theme } from '@app/stores/ui'
 import { CapabilitiesBootstrap } from '@app/components/CapabilitiesBootstrap'
+import { hermesAuthHeaders } from '@app/lib/api'
 
 const themeIcons: Record<Theme, typeof Moon> = {
   dark: Moon,
@@ -40,13 +41,19 @@ export function AppShell() {
     if (pathname === '/login') return
     void (async () => {
       try {
-        const health = (await fetch('/api/health').then((r) => r.json())) as {
+        const healthRes = await fetch('/api/health', {
+          credentials: 'include',
+          headers: hermesAuthHeaders(),
+        })
+        if (!healthRes.ok) return
+        const health = (await healthRes.json()) as {
           authRequired?: boolean
         }
         if (!health.authRequired) return
-        const session = await fetch('/api/auth/get-session', { credentials: 'include' }).then(
-          (r) => r.json(),
-        )
+        const session = await fetch('/api/auth/get-session', {
+          credentials: 'include',
+          headers: hermesAuthHeaders(),
+        }).then((r) => r.json())
         if (!session?.user) {
           window.location.href = '/login'
         }
