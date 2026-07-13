@@ -11,8 +11,7 @@ import {
   Pencil,
 } from 'lucide-react'
 import { apiClient } from '@app/lib/api'
-import { fetchHermesSessions } from '@app/lib/hermes-adapters'
-import { fetchHermesProfiles } from '@app/lib/profiles-api'
+import { fetchHermesProfiles, fetchHermesSessions } from '@app/lib/hermes-adapters'
 import { useSessionsStore } from '@app/stores/sessions'
 import { useUiStore } from '@app/stores/ui'
 import { formatRelativeTime } from '@app/lib/utils'

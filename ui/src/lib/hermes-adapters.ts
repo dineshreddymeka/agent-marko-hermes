@@ -2,7 +2,13 @@
  * Adapters: Hermes FastAPI session/message shapes → Marko shared DTOs.
  * Keeps the UI talking one-hop to Hermes without a Bun DTO layer.
  */
-import type { Message, McpDiscoveredTool, McpServer, Session } from '@hermes/shared'
+import type {
+  Message,
+  McpDiscoveredTool,
+  McpServer,
+  Profile,
+  Session,
+} from '@hermes/shared'
 import { apiClient } from '@app/lib/api'
 
 type HermesSessionRow = {
@@ -166,6 +172,50 @@ export async function fetchHermesMessages(sessionId: string): Promise<Message[]>
   >(`/api/sessions/${sessionId}/messages`)
   const rows = Array.isArray(data) ? data : (data.messages ?? [])
   return rows.map((row) => hermesMessageToDto(row, sessionId))
+}
+
+export async function fetchHermesProfiles(): Promise<Profile[]> {
+  return apiClient.get<Profile[]>('/api/profiles', { marko: 1 })
+}
+
+export async function fetchHermesSettings(): Promise<Record<string, unknown>> {
+  return apiClient.get<Record<string, unknown>>('/api/settings')
+}
+
+export async function createHermesProfile(
+  body: Pick<
+    Profile,
+    'name' | 'systemPrompt' | 'model' | 'temperature' | 'provider'
+  > &
+    Partial<Pick<Profile, 'providerConfig' | 'settings'>>,
+): Promise<Profile> {
+  return apiClient.post<Profile>('/api/profiles', body)
+}
+
+export async function updateHermesProfile(
+  id: string,
+  body: Partial<
+    Pick<
+      Profile,
+      | 'name'
+      | 'systemPrompt'
+      | 'model'
+      | 'temperature'
+      | 'provider'
+      | 'providerConfig'
+      | 'settings'
+    >
+  >,
+): Promise<Profile> {
+  return apiClient.patch<Profile>(`/api/profiles/${id}`, body)
+}
+
+export async function setHermesDefaultProfile(id: string): Promise<void> {
+  await apiClient.post(`/api/profiles/${id}/default`)
+}
+
+export async function deleteHermesProfile(id: string): Promise<void> {
+  await apiClient.delete(`/api/profiles/${id}`)
 }
 
 /** OJ-only surfaces stubbed when Hermes has no equivalent. */
