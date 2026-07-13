@@ -4240,6 +4240,62 @@ class TestNewEndpoints:
         resp = self.client.post("/api/profiles/active", json={"name": "ghost"})
         assert resp.status_code == 404
 
+    def test_profiles_marko_list_and_crud(self, monkeypatch):
+        import hermes_cli.profiles as profiles_mod
+
+        monkeypatch.setattr(profiles_mod, "_cleanup_gateway_service", lambda *a, **kw: None)
+        monkeypatch.setattr(profiles_mod, "create_wrapper_script", lambda *a, **kw: None)
+
+        listed = self.client.get("/api/profiles", params={"marko": 1})
+        assert listed.status_code == 200
+        initial = listed.json()
+        assert isinstance(initial, list)
+        assert any(p["id"] == "default" for p in initial)
+
+        created = self.client.post(
+            "/api/profiles",
+            json={
+                "name": "Marko Agent",
+                "systemPrompt": "You are a test agent.",
+                "model": "composer-2.5",
+                "temperature": 0.5,
+                "provider": "hermes-python",
+            },
+        )
+        assert created.status_code == 200
+        body = created.json()
+        assert body["id"] == "marko-agent"
+        assert body["name"] == "Marko Agent"
+        assert body["systemPrompt"] == "You are a test agent."
+        assert body["temperature"] == 0.5
+
+        updated = self.client.patch(
+            "/api/profiles/marko-agent",
+            json={
+                "systemPrompt": "Updated prompt.",
+                "model": "gpt-4.1",
+                "temperature": 0.9,
+            },
+        )
+        assert updated.status_code == 200
+        assert updated.json()["systemPrompt"] == "Updated prompt."
+        assert updated.json()["model"] == "gpt-4.1"
+        assert updated.json()["temperature"] == 0.9
+
+        default = self.client.post("/api/profiles/marko-agent/default")
+        assert default.status_code == 200
+        assert default.json()["default_profile_id"] == "marko-agent"
+
+        settings = self.client.get("/api/settings")
+        assert settings.status_code == 200
+        assert settings.json()["default_profile_id"] == "marko-agent"
+
+        deleted = self.client.delete("/api/profiles/marko-agent")
+        assert deleted.status_code == 200
+
+        after = self.client.get("/api/profiles", params={"marko": 1}).json()
+        assert all(p["id"] != "marko-agent" for p in after)
+
     def test_profile_description_round_trip(self, monkeypatch):
         import hermes_cli.profiles as profiles_mod
         monkeypatch.setattr(profiles_mod, "create_wrapper_script", lambda name: None)
