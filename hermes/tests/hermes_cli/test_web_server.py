@@ -4240,6 +4240,15 @@ class TestNewEndpoints:
         resp = self.client.post("/api/profiles/active", json={"name": "ghost"})
         assert resp.status_code == 404
 
+    def test_profiles_set_default_compat_shim(self, monkeypatch):
+        import hermes_cli.profiles as profiles_mod
+        monkeypatch.setattr(profiles_mod, "create_wrapper_script", lambda name: None)
+
+        self.client.post("/api/profiles", json={"name": "marko-prof"})
+        resp = self.client.post("/api/profiles/marko-prof/default")
+        assert resp.status_code == 200
+        assert resp.json()["active"] == "marko-prof"
+
     def test_profile_description_round_trip(self, monkeypatch):
         import hermes_cli.profiles as profiles_mod
         monkeypatch.setattr(profiles_mod, "create_wrapper_script", lambda name: None)
