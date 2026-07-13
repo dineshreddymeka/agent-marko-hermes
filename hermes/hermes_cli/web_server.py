@@ -13028,6 +13028,15 @@ async def set_active_profile_endpoint(body: ProfileActiveUpdate):
     return {"ok": True, "active": profiles_mod.normalize_profile_name(body.name)}
 
 
+@app.post("/api/profiles/{name}/default")
+async def set_default_profile_compat(name: str):
+    """Marko/OJ compatibility shim — set sticky active profile by name.
+
+    Delegates to ``POST /api/profiles/active`` / ``hermes_cli.profiles.set_active_profile``.
+    """
+    return await set_active_profile_endpoint(ProfileActiveUpdate(name=name))
+
+
 @app.get("/api/profiles/{name}/setup-command")
 async def get_profile_setup_command(name: str):
     return {"command": _profile_setup_command(name)}
