@@ -25,7 +25,7 @@ import {
   X,
 } from 'lucide-react'
 import { apiClient } from '@app/lib/api'
-import { fetchHermesProfiles } from '@app/lib/profiles-api'
+import { fetchHermesProfiles } from '@app/lib/hermes-adapters'
 import { useUiStore } from '@app/stores/ui'
 import { previewCronSchedule } from '@app/lib/panels'
 import {
