@@ -4,19 +4,18 @@ import { Plus, Star, Trash2 } from 'lucide-react'
 import { useSettingsStore } from '@app/stores/settings'
 import { useUiStore } from '@app/stores/ui'
 import type { Profile } from '@hermes/shared'
+import {
+  createHermesProfile,
+  deleteHermesProfile,
+  fetchHermesProfiles,
+  fetchHermesSettings,
+  setHermesDefaultProfile,
+  updateHermesProfile,
+} from '@app/lib/hermes-adapters'
 import { EmptyState } from '@app/components/common/EmptyState'
 import { Skeleton } from '@app/components/common/Skeleton'
 import { modelLabel, prettifyIdentifier } from '@app/lib/display-names'
 import { profileProviderLabel } from '@app/lib/labels'
-import {
-  createHermesProfile,
-  deleteHermesProfile,
-  fetchActiveHermesProfileName,
-  fetchHermesProfileSoul,
-  fetchHermesProfiles,
-  setDefaultHermesProfile,
-  updateHermesProfile,
-} from '@app/lib/profiles-api'
 
 const emptyForm = {
   name: '',
@@ -42,7 +41,6 @@ export function ProfilesPanel() {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Profile | null>(null)
   const [form, setForm] = useState(emptyForm)
-  const [loadingSoul, setLoadingSoul] = useState(false)
 
   const { data: profiles, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['profiles'],
@@ -50,9 +48,15 @@ export function ProfilesPanel() {
     retry: false,
   })
 
-  const { data: activeProfileName } = useQuery({
-    queryKey: ['profiles-active'],
-    queryFn: fetchActiveHermesProfileName,
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: async () => {
+      const all = await fetchHermesSettings()
+      if (typeof all.default_profile_id === 'string') {
+        setDefaultProfileId(all.default_profile_id)
+      }
+      return all
+    },
     retry: false,
   })
 
@@ -68,26 +72,33 @@ export function ProfilesPanel() {
   })
 
   const update = useMutation({
-    mutationFn: () => updateHermesProfile(editing!.id, form, editing ?? undefined),
+    mutationFn: () =>
+      updateHermesProfile(editing!.id, {
+        name: form.name,
+        systemPrompt: form.systemPrompt,
+        model: form.model,
+        temperature: form.temperature,
+        provider: form.provider,
+      }),
     onSuccess: (profile) => {
       addToast({ title: 'Profile saved', variant: 'success' })
       setEditing(null)
-      if (defaultProfileId === profile.id || activeProfileName === profile.id) {
+      if (defaultProfileId === profile.id || settings?.default_profile_id === profile.id) {
         setModel(profile.model)
       }
       void queryClient.invalidateQueries({ queryKey: ['profiles'] })
-      void queryClient.invalidateQueries({ queryKey: ['profiles-active'] })
+      void queryClient.invalidateQueries({ queryKey: ['settings'] })
     },
     onError: () => addToast({ title: 'Save failed', variant: 'danger' }),
   })
 
   const setDefault = useMutation({
-    mutationFn: (profile: Profile) => setDefaultHermesProfile(profile),
+    mutationFn: (profile: Profile) => setHermesDefaultProfile(profile.id),
     onSuccess: (_data, profile) => {
       setDefaultProfileId(profile.id)
       setModel(profile.model)
       addToast({ title: `Default: ${profile.name}`, variant: 'success' })
-      void queryClient.invalidateQueries({ queryKey: ['profiles-active'] })
+      void queryClient.invalidateQueries({ queryKey: ['settings'] })
     },
     onError: () => addToast({ title: 'Could not set default', variant: 'danger' }),
   })
@@ -97,7 +108,7 @@ export function ProfilesPanel() {
     onSuccess: () => {
       addToast({ title: 'Profile deleted', variant: 'success' })
       void queryClient.invalidateQueries({ queryKey: ['profiles'] })
-      void queryClient.invalidateQueries({ queryKey: ['profiles-active'] })
+      void queryClient.invalidateQueries({ queryKey: ['settings'] })
     },
     onError: () => addToast({ title: 'Delete failed', variant: 'danger' }),
   })
@@ -112,15 +123,6 @@ export function ProfilesPanel() {
       temperature: profile.temperature,
       provider: profile.provider,
     })
-    setLoadingSoul(true)
-    void fetchHermesProfileSoul(profile.id)
-      .then((soul) => {
-        if (soul.trim()) {
-          setForm((f) => ({ ...f, systemPrompt: soul }))
-        }
-      })
-      .catch(() => undefined)
-      .finally(() => setLoadingSoul(false))
   }
 
   if (isLoading) return <Skeleton className="m-4 h-20 w-full" />
@@ -140,6 +142,9 @@ export function ProfilesPanel() {
   }
 
   const formOpen = showForm || !!editing
+  const activeProfileId =
+    (typeof settings?.default_profile_id === 'string' && settings.default_profile_id) ||
+    defaultProfileId
 
   return (
     <div className="p-4">
@@ -163,7 +168,7 @@ export function ProfilesPanel() {
           <input
             value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            placeholder="Profile name (lowercase, a-z0-9_-)"
+            placeholder="Profile name"
             className="w-full rounded border border-border bg-canvas px-2 py-1 text-sm"
           />
           <textarea
@@ -171,8 +176,7 @@ export function ProfilesPanel() {
             onChange={(e) => setForm((f) => ({ ...f, systemPrompt: e.target.value }))}
             rows={4}
             placeholder="System prompt (SOUL.md)"
-            disabled={loadingSoul}
-            className="w-full rounded border border-border bg-canvas px-2 py-1 text-sm disabled:opacity-60"
+            className="w-full rounded border border-border bg-canvas px-2 py-1 text-sm"
           />
           <div className="flex flex-wrap gap-2">
             <input
@@ -189,7 +193,6 @@ export function ProfilesPanel() {
               value={form.temperature}
               onChange={(e) => setForm((f) => ({ ...f, temperature: Number(e.target.value) }))}
               className="w-24 rounded border border-border bg-canvas px-2 py-1 text-sm"
-              title="Not persisted to Hermes config (display only)"
             />
             <select
               value={form.provider}
@@ -205,7 +208,7 @@ export function ProfilesPanel() {
           </div>
           <button
             type="button"
-            disabled={!form.name.trim() || loadingSoul}
+            disabled={!form.name.trim()}
             onClick={() => (editing ? update.mutate() : create.mutate())}
             className="rounded bg-accent px-3 py-1 text-xs text-white disabled:opacity-50"
           >
@@ -222,8 +225,7 @@ export function ProfilesPanel() {
       ) : (
         <ul className="space-y-2">
           {profiles.map((profile) => {
-            const isDefault =
-              activeProfileName === profile.id || defaultProfileId === profile.id
+            const isDefault = activeProfileId === profile.id
             return (
               <li key={profile.id} className="rounded-lg border border-border p-3">
                 <div className="flex items-center justify-between gap-2">
@@ -281,6 +283,8 @@ export function ProfilesPanel() {
                   <span title={String(profile.providerConfig?.hermesProvider ?? profile.provider)}>
                     {profileProviderDisplay(profile)}
                   </span>
+                  {' · temp '}
+                  {profile.temperature}
                   {' · '}
                   {Number(profile.settings?.skillCount ?? 0)} skills
                 </p>
