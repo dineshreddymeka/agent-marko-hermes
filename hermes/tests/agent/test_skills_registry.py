@@ -120,3 +120,14 @@ def test_record_write_updates_hash(registry_env):
     after = registry.get_by_name("writer")
     assert after["description"] == "v2"
     assert after["contentHash"] != before["contentHash"]
+
+
+def test_resolve_ids_for_cron_mcp_links(registry_env):
+    registry, skills_dir, _home = registry_env
+    _write_skill(skills_dir, "cron-skill")
+    registry.sync_from_disk()
+    row = registry.get_by_name("cron-skill")
+    known, unknown = registry.resolve_ids([row["id"], "missing-uuid"])
+    assert len(known) == 1
+    assert known[0]["name"] == "cron-skill"
+    assert unknown == ["missing-uuid"]

@@ -155,6 +155,21 @@ class SkillsRegistry:
         ).fetchone()
         return self._row_to_api(dict(row)) if row else None
 
+    def resolve_ids(self, skill_ids: List[str]) -> Tuple[List[Dict[str, str]], List[str]]:
+        """Return (known [{id,name}], unknown_ids) for cron/MCP wizard validation."""
+        known: List[Dict[str, str]] = []
+        unknown: List[str] = []
+        for raw in skill_ids:
+            sid = (raw or "").strip()
+            if not sid:
+                continue
+            row = self.get_by_id(sid) or self.get_by_name(sid)
+            if row:
+                known.append({"id": row["id"], "name": row["name"]})
+            else:
+                unknown.append(sid)
+        return known, unknown
+
     def get_content(self, name: str) -> Optional[Dict[str, Any]]:
         row = self.get_by_name(name)
         if not row:

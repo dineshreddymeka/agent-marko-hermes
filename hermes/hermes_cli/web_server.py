@@ -10764,6 +10764,7 @@ def _redact_mcp_env(env: Dict[str, Any]) -> Dict[str, str]:
 def _mcp_server_summary(name: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
     transport = "http" if cfg.get("url") else ("stdio" if cfg.get("command") else "unknown")
     return {
+        "id": name,
         "name": name,
         "transport": transport,
         "url": cfg.get("url"),
@@ -10788,6 +10789,12 @@ async def list_mcp_servers(profile: Optional[str] = None):
             _mcp_server_summary(name, cfg) for name, cfg in sorted(servers.items())
         ]
     }
+
+
+@app.get("/api/mcp")
+async def list_mcp_alias(profile: Optional[str] = None):
+    """Marko alias — same payload as GET /api/mcp/servers."""
+    return await list_mcp_servers(profile)
 
 
 @app.post("/api/mcp/servers")
@@ -13332,6 +13339,78 @@ async def get_skills_meta(profile: Optional[str] = None):
     with _profile_scope(profile):
         registry = _skills_registry_for_profile(profile)
         return registry.meta()
+
+
+@app.get("/api/skills/{skill_id}")
+async def get_skill_by_id(skill_id: str, profile: Optional[str] = None):
+    """Lookup a single skill row by stable registry UUID (cron/MCP skillIds)."""
+    with _profile_scope(profile):
+        registry = _skills_registry_for_profile(profile)
+        row = registry.get_by_id(skill_id) or registry.get_by_name(skill_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Skill not found.")
+    return row
+
+
+class CronWizardPreviewBody(BaseModel):
+    schedule: Optional[str] = None
+    mcpServerIds: Optional[List[str]] = None
+    skillIds: Optional[List[str]] = None
+    profile: Optional[str] = None
+
+
+@app.post("/api/cron/wizard/preview")
+async def cron_wizard_preview(body: CronWizardPreviewBody, profile: Optional[str] = None):
+    """Validate cron wizard selections against live schedule + DB-backed skills/MCP."""
+    from hermes_cli.mcp_config import _get_mcp_servers
+
+    selected_profile = body.profile or profile
+    schedule_info = None
+    if body.schedule:
+        try:
+            from cron.jobs import parse_schedule
+
+            parsed = parse_schedule(body.schedule.strip())
+            schedule_info = {
+                "valid": True,
+                "preview": str(parsed),
+                "nextRun": None,
+            }
+        except Exception:
+            schedule_info = {"valid": False, "preview": "Invalid schedule", "nextRun": None}
+
+    mcp_ids = [str(x).strip() for x in (body.mcpServerIds or []) if str(x).strip()]
+    skill_ids = [str(x).strip() for x in (body.skillIds or []) if str(x).strip()]
+
+    with _profile_scope(selected_profile):
+        servers_cfg = _get_mcp_servers()
+        registry = _skills_registry_for_profile(selected_profile)
+        registry.sync_from_disk()
+        known_skills, unknown_skill_ids = registry.resolve_ids(skill_ids)
+
+    mcp_servers = []
+    unknown_mcp_ids = []
+    for mid in mcp_ids:
+        if mid in servers_cfg:
+            summary = _mcp_server_summary(mid, servers_cfg[mid])
+            mcp_servers.append({
+                "id": mid,
+                "name": summary["name"],
+                "enabled": summary.get("enabled", True),
+                "lastStatus": None,
+                "lastError": None,
+                "healthy": summary.get("enabled", True),
+            })
+        else:
+            unknown_mcp_ids.append(mid)
+
+    return {
+        "schedule": schedule_info,
+        "mcpServers": mcp_servers,
+        "unknownMcpIds": unknown_mcp_ids,
+        "skills": known_skills,
+        "unknownSkillIds": unknown_skill_ids,
+    }
 
 
 @app.post("/api/skills/sync")
