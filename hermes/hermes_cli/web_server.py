@@ -207,6 +207,14 @@ async def _lifespan(app: "FastAPI"):
     # Reap idle/dead keep-alive PTY sessions in the background (30-min TTL).
     pty_reaper_task = asyncio.create_task(run_reaper(PTY_REGISTRY))
 
+    # MCP registry: DB source of truth; one-time import from config.yaml if empty.
+    try:
+        from hermes_cli.mcp_store import ensure_bootstrapped
+
+        ensure_bootstrapped()
+    except Exception:
+        _log.debug("MCP store bootstrap skipped", exc_info=True)
+
     try:
         yield
     finally:
@@ -10762,6 +10770,7 @@ def _redact_mcp_env(env: Dict[str, Any]) -> Dict[str, str]:
 
 
 def _mcp_server_summary(name: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """Legacy summary from an in-memory config dict (tests / profile builder)."""
     transport = "http" if cfg.get("url") else ("stdio" if cfg.get("command") else "unknown")
     return {
         "name": name,
@@ -10772,22 +10781,25 @@ def _mcp_server_summary(name: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
         "env": _redact_mcp_env(cfg.get("env") or {}),
         "auth": cfg.get("auth"),
         "enabled": cfg.get("enabled", True) is not False,
-        # Tool selection: list of enabled tool names, or None = all.
         "tools": cfg.get("tools"),
     }
 
 
-@app.get("/api/mcp/servers")
-async def list_mcp_servers(profile: Optional[str] = None):
-    from hermes_cli.mcp_config import _get_mcp_servers
+def _mcp_servers_from_db(*, full_dto: bool = True) -> List[Dict[str, Any]]:
+    from hermes_cli.mcp_store import ensure_bootstrapped, list_rows, row_to_api_dto, row_to_summary
 
+    ensure_bootstrapped()
+    rows = list_rows()
+    if full_dto:
+        return [row_to_api_dto(row, redact_env=redact_key) for row in rows]
+    return [row_to_summary(row, redact_env=redact_key) for row in rows]
+
+
+@app.get("/api/mcp/servers")
+async def list_mcp_servers(profile: Optional[str] = None, full: Optional[bool] = None):
     with _profile_scope(profile):
-        servers = _get_mcp_servers()
-    return {
-        "servers": [
-            _mcp_server_summary(name, cfg) for name, cfg in sorted(servers.items())
-        ]
-    }
+        servers = _mcp_servers_from_db(full_dto=full is not False)
+    return {"servers": servers, "states": []}
 
 
 @app.post("/api/mcp/servers")
@@ -10832,7 +10844,13 @@ async def add_mcp_server(body: MCPServerCreate, profile: Optional[str] = None):
         _log.exception("POST /api/mcp/servers failed")
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return _mcp_server_summary(name, server_config)
+    from hermes_cli.mcp_store import get_row, row_to_api_dto
+
+    with _profile_scope(body.profile or profile):
+        row = get_row(name)
+    if row is None:
+        raise HTTPException(status_code=500, detail=f"Server '{name}' missing after save")
+    return row_to_api_dto(row, redact_env=redact_key)
 
 
 @app.put("/api/mcp/servers")
@@ -10906,20 +10924,34 @@ async def test_mcp_server(name: str, profile: Optional[str] = None):
         # FastAPI event loop is never blocked.
         tools, token_present = await asyncio.to_thread(_probe_scoped)
     except Exception as exc:
+        from hermes_cli.mcp_store import update_probe_result
+
+        with _profile_scope(profile):
+            update_probe_result(name, ok=False, error=str(exc))
         return {
             "ok": False,
             "error": str(exc),
             "tools": [],
         }
     if not token_present:
+        from hermes_cli.mcp_store import update_probe_result
+
+        err = "OAuth authentication required — no token found."
+        with _profile_scope(profile):
+            update_probe_result(name, ok=False, error=err)
         return {
             "ok": False,
-            "error": "OAuth authentication required — no token found.",
+            "error": err,
             "tools": [],
         }
+    tool_dicts = [{"name": t, "description": d} for t, d in tools]
+    from hermes_cli.mcp_store import update_probe_result
+
+    with _profile_scope(profile):
+        update_probe_result(name, ok=True, tools=tool_dicts)
     return {
         "ok": True,
-        "tools": [{"name": t, "description": d} for t, d in tools],
+        "tools": tool_dicts,
         "prompts": details.get("prompts", 0),
         "resources": details.get("resources", 0),
     }
@@ -11051,14 +11083,10 @@ async def set_mcp_server_enabled(
     can be re-enabled without re-entering their settings.
     """
     with _profile_scope(body.profile or profile):
-        cfg = load_config()
-        servers = cfg.get("mcp_servers")
-        if not isinstance(servers, dict) or name not in servers:
+        from hermes_cli.mcp_store import set_enabled
+
+        if not set_enabled(name, bool(body.enabled)):
             raise HTTPException(status_code=404, detail=f"Server '{name}' not found")
-        if not isinstance(servers[name], dict):
-            raise HTTPException(status_code=400, detail="Malformed server config")
-        servers[name]["enabled"] = bool(body.enabled)
-        save_config(cfg)
     return {"ok": True, "name": name, "enabled": bool(body.enabled)}
 
 
