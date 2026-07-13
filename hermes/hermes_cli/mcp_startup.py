@@ -12,14 +12,14 @@ _mcp_discovery_thread: Optional[threading.Thread] = None
 
 
 def _has_configured_mcp_servers() -> bool:
-    """Cheap config probe so non-MCP users avoid importing the MCP stack."""
+    """Cheap DB probe so non-MCP users avoid importing the MCP stack."""
     try:
-        from hermes_cli.config import read_raw_config
+        from hermes_cli.mcp_store import ensure_bootstrapped, list_configs
 
-        mcp_servers = (read_raw_config() or {}).get("mcp_servers")
-        return isinstance(mcp_servers, dict) and len(mcp_servers) > 0
+        ensure_bootstrapped()
+        return bool(list_configs())
     except Exception:
-        # Be conservative: if config probing fails, try discovery in the
+        # Be conservative: if probing fails, try discovery in the
         # background so startup still can't block.
         return True
 

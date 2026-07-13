@@ -128,7 +128,10 @@ export function descopedFeatureMessage(feature: string): string {
 
 // ── MCP servers (Hermes /api/mcp/servers*) ────────────────────────────────
 
-/** Per-server summary from GET/POST /api/mcp/servers (name-keyed, not UUID). */
+/** DB-backed DTO from GET/POST /api/mcp/servers (camelCase Marko shape). */
+export type HermesMcpServerDto = McpServer
+
+/** Legacy summary shape (still accepted for mapping). */
 export type HermesMcpServerSummary = {
   name: string
   transport: 'http' | 'stdio' | 'unknown'
@@ -138,8 +141,9 @@ export type HermesMcpServerSummary = {
   env: Record<string, string>
   auth: string | null
   enabled: boolean
-  /** null = all tools enabled for the agent. */
-  tools: string[] | null
+  tools?: unknown
+  toolWhitelist?: string[] | null
+  id?: string
 }
 
 export type HermesMcpTestResult = {
@@ -169,6 +173,10 @@ function hermesMcpTransport(row: HermesMcpServerSummary): 'stdio' | 'http' {
   return row.url ? 'http' : 'stdio'
 }
 
+function isDbBackedMcpDto(row: HermesMcpServerSummary | HermesMcpServerDto): row is HermesMcpServerDto {
+  return typeof (row as HermesMcpServerDto).id === 'string' && Boolean((row as HermesMcpServerDto).createdAt)
+}
+
 function summaryToRawConfig(row: HermesMcpServerSummary): Record<string, unknown> {
   const cfg: Record<string, unknown> = {}
   if (row.url) cfg.url = row.url
@@ -177,14 +185,29 @@ function summaryToRawConfig(row: HermesMcpServerSummary): Record<string, unknown
   if (row.env && Object.keys(row.env).length) cfg.env = row.env
   if (row.auth) cfg.auth = row.auth
   if (!row.enabled) cfg.enabled = false
-  if (row.tools != null) cfg.tools = row.tools
+  const whitelist = row.toolWhitelist ?? (Array.isArray(row.tools) ? row.tools : null)
+  if (whitelist != null) cfg.tools = whitelist
+  else if (row.tools != null && typeof row.tools === 'object') cfg.tools = row.tools
   return cfg
 }
 
 export function hermesMcpServerToDto(
-  row: HermesMcpServerSummary,
+  row: HermesMcpServerSummary | HermesMcpServerDto,
   live?: Pick<HermesMcpLiveState, 'status' | 'error' | 'tools'>,
 ): McpServer {
+  if (isDbBackedMcpDto(row)) {
+    if (!live) return row
+    return {
+      ...row,
+      lastStatus: live.status,
+      lastError: live.error ?? null,
+      lastTestedAt: MCP_NOW(),
+      lastConnectedAt: live.status === 'connected' ? MCP_NOW() : row.lastConnectedAt,
+      discoveredTools: live.tools.length
+        ? live.tools.map((name) => ({ name }))
+        : row.discoveredTools,
+    }
+  }
   const transport = hermesMcpTransport(row)
   const discoveredTools: McpDiscoveredTool[] | null = live?.tools?.length
     ? live.tools.map((name) => ({ name }))
@@ -248,15 +271,21 @@ export async function fetchHermesMcpServers(): Promise<{
   servers: McpServer[]
   states: HermesMcpLiveState[]
 }> {
-  const data = await apiClient.get<{ servers: HermesMcpServerSummary[] }>('/api/mcp/servers')
+  const data = await apiClient.get<{
+    servers: Array<HermesMcpServerSummary | HermesMcpServerDto>
+    states?: HermesMcpLiveState[]
+  }>('/api/mcp/servers')
   const servers = (data.servers ?? []).map((row) => hermesMcpServerToDto(row))
-  return { servers, states: [] }
+  return { servers, states: data.states ?? [] }
 }
 
 export async function createHermesMcpServer(
   body: ReturnType<typeof hermesMcpCreateBody>,
 ): Promise<McpServer> {
-  const created = await apiClient.post<HermesMcpServerSummary>('/api/mcp/servers', body)
+  const created = await apiClient.post<HermesMcpServerSummary | HermesMcpServerDto>(
+    '/api/mcp/servers',
+    body,
+  )
   return hermesMcpServerToDto(created)
 }
 
@@ -308,21 +337,39 @@ export async function setHermesMcpServerTools(
   name: string,
   tools: string[] | null,
 ): Promise<McpServer> {
-  const data = await apiClient.get<{ servers: HermesMcpServerSummary[] }>('/api/mcp/servers')
+  const data = await apiClient.get<{
+    servers: Array<HermesMcpServerSummary | HermesMcpServerDto>
+  }>('/api/mcp/servers')
   const rows = data.servers ?? []
   const servers: Record<string, Record<string, unknown>> = {}
   for (const row of rows) {
-    const cfg = summaryToRawConfig(row)
+    const cfg = isDbBackedMcpDto(row)
+      ? summaryToRawConfig({
+          name: row.name,
+          transport: row.transport,
+          url: row.url,
+          command: row.command,
+          args: [],
+          env: row.env ?? {},
+          auth: null,
+          enabled: row.enabled,
+          toolWhitelist: row.toolWhitelist,
+        })
+      : summaryToRawConfig(row)
     if (row.name === name) {
       if (tools == null) delete cfg.tools
-      else cfg.tools = tools
+      else cfg.tools = { include: tools }
     }
     servers[row.name] = cfg
   }
   await apiClient.put('/api/mcp/servers', { servers })
   const updated = rows.find((r) => r.name === name)
   if (!updated) throw new Error(`Server "${name}" not found`)
-  return hermesMcpServerToDto({ ...updated, tools })
+  return hermesMcpServerToDto(
+    isDbBackedMcpDto(updated)
+      ? { ...updated, toolWhitelist: tools }
+      : { ...updated, tools },
+  )
 }
 
 /** Next Hermes `tools` allowlist after toggling one tool name. */

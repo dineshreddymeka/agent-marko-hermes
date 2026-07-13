@@ -49,6 +49,11 @@ class TestMcpEndpoints:
 
         assert "srv1" in _get_mcp_servers()
 
+        # DB parity: source of truth is mcp.db.
+        from hermes_cli.mcp_store import get_row
+
+        assert get_row("srv1") is not None
+
         assert self.client.delete("/api/mcp/servers/srv1").status_code == 200
         assert self.client.get("/api/mcp/servers").json()["servers"] == []
 

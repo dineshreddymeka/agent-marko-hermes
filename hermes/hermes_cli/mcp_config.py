@@ -76,17 +76,20 @@ def _prompt(question: str, *, password: bool = False, default: str = "") -> str:
 # ─── Config Helpers ───────────────────────────────────────────────────────────
 
 def _get_mcp_servers(config: Optional[dict] = None) -> Dict[str, dict]:
-    """Return the ``mcp_servers`` dict from config, or empty dict."""
-    if config is None:
-        config = load_config()
-    servers = config.get("mcp_servers")
-    if not servers or not isinstance(servers, dict):
-        return {}
-    return servers
+    """Return the ``mcp_servers`` dict — DB is source of truth; mirrors config.yaml."""
+    if config is not None:
+        servers = config.get("mcp_servers")
+        if not servers or not isinstance(servers, dict):
+            return {}
+        return servers
+    from hermes_cli.mcp_store import ensure_bootstrapped, list_configs
+
+    ensure_bootstrapped()
+    return list_configs()
 
 
 def _save_mcp_server(name: str, server_config: dict) -> bool:
-    """Add or update a server entry in config.yaml.
+    """Add or update a server entry in the MCP DB (mirrors config.yaml).
 
     Returns False when a high-signal exfiltration-shaped stdio command is
     rejected. MCP stdio servers are user-chosen local commands, so this blocks
@@ -98,23 +101,16 @@ def _save_mcp_server(name: str, server_config: dict) -> bool:
             _warning(issue)
         _warning(f"Server '{name}' was NOT saved due to suspicious configuration.")
         return False
-    config = load_config()
-    config.setdefault("mcp_servers", {})[name] = server_config
-    save_config(config)
-    return True
+    from hermes_cli.mcp_store import upsert_server
+
+    return upsert_server(name, server_config)
 
 
 def _remove_mcp_server(name: str) -> bool:
-    """Remove a server from config.yaml.  Returns True if it existed."""
-    config = load_config()
-    servers = config.get("mcp_servers", {})
-    if name not in servers:
-        return False
-    del servers[name]
-    if not servers:
-        config.pop("mcp_servers", None)
-    save_config(config)
-    return True
+    """Remove a server from the MCP DB. Returns True if it existed."""
+    from hermes_cli.mcp_store import delete_server
+
+    return delete_server(name)
 
 
 def _replace_mcp_servers(servers: Dict[str, dict]) -> Tuple[bool, List[str]]:
@@ -141,13 +137,9 @@ def _replace_mcp_servers(servers: Dict[str, dict]) -> Tuple[bool, List[str]]:
     if issues:
         return False, issues
 
-    config = load_config()
-    if servers:
-        config["mcp_servers"] = dict(servers)
-    else:
-        config.pop("mcp_servers", None)
-    save_config(config)
-    return True, []
+    from hermes_cli.mcp_store import replace_all
+
+    return replace_all(servers)
 
 
 def _env_key_for_server(name: str) -> str:
@@ -993,12 +985,9 @@ def cmd_mcp_configure(args):
         _info("No changes made.")
         return
 
-    # Update config
-    config = load_config()
-    server_entry = cfg_get(config, "mcp_servers", name, default={})
-
+    # Update config via MCP store (DB + config.yaml mirror)
+    server_entry = dict(cfg)
     if len(chosen) == total:
-        # All selected → remove include/exclude (register all)
         server_entry.pop("tools", None)
     else:
         chosen_names = [tool_names[i] for i in sorted(chosen)]
@@ -1006,8 +995,9 @@ def cmd_mcp_configure(args):
         server_entry["tools"]["include"] = chosen_names
         server_entry["tools"].pop("exclude", None)
 
-    config.setdefault("mcp_servers", {})[name] = server_entry
-    save_config(config)
+    if not _save_mcp_server(name, server_entry):
+        _error("Failed to save tool selection.")
+        return
 
     new_count = len(chosen)
     _success(f"Updated config: {new_count}/{total} tools enabled")
