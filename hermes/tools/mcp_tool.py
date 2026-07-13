@@ -3759,9 +3759,11 @@ def _load_mcp_config() -> Dict[str, dict]:
 
         if _env_enabled("HERMES_SAFE_MODE"):
             return {}
-        config = load_config()
-        servers = config.get("mcp_servers")
-        if not servers or not isinstance(servers, dict):
+        from hermes_cli.mcp_store import ensure_bootstrapped, list_configs
+
+        ensure_bootstrapped()
+        servers = list_configs()
+        if not servers:
             return {}
         # Ensure .env vars are available for interpolation
         try:
