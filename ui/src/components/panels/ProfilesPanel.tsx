@@ -1,10 +1,17 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Star, Trash2 } from 'lucide-react'
-import { apiClient } from '@app/lib/api'
 import { useSettingsStore } from '@app/stores/settings'
 import { useUiStore } from '@app/stores/ui'
 import type { Profile } from '@hermes/shared'
+import {
+  createHermesProfile,
+  deleteHermesProfile,
+  fetchHermesProfiles,
+  fetchHermesSettings,
+  setHermesDefaultProfile,
+  updateHermesProfile,
+} from '@app/lib/hermes-adapters'
 import { EmptyState } from '@app/components/common/EmptyState'
 import { Skeleton } from '@app/components/common/Skeleton'
 import { labelTitle, modelLabel } from '@app/lib/display-names'
@@ -31,14 +38,14 @@ export function ProfilesPanel() {
 
   const { data: profiles, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['profiles'],
-    queryFn: () => apiClient.get<Profile[]>('/api/profiles'),
+    queryFn: fetchHermesProfiles,
     retry: false,
   })
 
   const { data: settings } = useQuery({
     queryKey: ['settings'],
     queryFn: async () => {
-      const all = await apiClient.get<Record<string, unknown>>('/api/settings')
+      const all = await fetchHermesSettings()
       if (typeof all.default_profile_id === 'string') {
         setDefaultProfileId(all.default_profile_id)
       }
@@ -48,7 +55,7 @@ export function ProfilesPanel() {
   })
 
   const create = useMutation({
-    mutationFn: () => apiClient.post<Profile>('/api/profiles', form),
+    mutationFn: () => createHermesProfile(form),
     onSuccess: () => {
       addToast({ title: 'Profile created', variant: 'success' })
       setShowForm(false)
@@ -60,7 +67,7 @@ export function ProfilesPanel() {
 
   const update = useMutation({
     mutationFn: () =>
-      apiClient.patch<Profile>(`/api/profiles/${editing!.id}`, {
+      updateHermesProfile(editing!.id, {
         name: form.name,
         systemPrompt: form.systemPrompt,
         model: form.model,
@@ -79,8 +86,7 @@ export function ProfilesPanel() {
   })
 
   const setDefault = useMutation({
-    mutationFn: (profile: Profile) =>
-      apiClient.post(`/api/profiles/${profile.id}/default`),
+    mutationFn: (profile: Profile) => setHermesDefaultProfile(profile.id),
     onSuccess: (_data, profile) => {
       setDefaultProfileId(profile.id)
       setModel(profile.model)
@@ -91,7 +97,7 @@ export function ProfilesPanel() {
   })
 
   const remove = useMutation({
-    mutationFn: (id: string) => apiClient.delete(`/api/profiles/${id}`),
+    mutationFn: (id: string) => deleteHermesProfile(id),
     onSuccess: () => {
       addToast({ title: 'Profile deleted', variant: 'success' })
       void queryClient.invalidateQueries({ queryKey: ['profiles'] })

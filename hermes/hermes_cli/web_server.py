@@ -12840,7 +12840,17 @@ def _disable_unselected_skills(profile_dir: Path, keep: List[str]) -> int:
 
 
 @app.get("/api/profiles")
-async def list_profiles_endpoint():
+async def list_profiles_endpoint(marko: int = 0):
+    if marko:
+        from hermes_cli import marko_profiles_api as marko_profiles_mod
+
+        try:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, marko_profiles_mod.list_marko_profiles)
+        except Exception as e:
+            _log.exception("GET /api/profiles?marko=1 failed")
+            raise HTTPException(status_code=500, detail=str(e))
+
     from hermes_cli import profiles as profiles_mod
     try:
         loop = asyncio.get_running_loop()
@@ -12852,7 +12862,32 @@ async def list_profiles_endpoint():
 
 
 @app.post("/api/profiles")
-async def create_profile_endpoint(body: ProfileCreate):
+async def create_profile_endpoint(request: Request):
+    try:
+        raw_body = await request.json()
+    except Exception:
+        raw_body = {}
+    if isinstance(raw_body, dict) and "systemPrompt" in raw_body:
+        from hermes_cli import marko_profiles_api as marko_profiles_mod
+
+        try:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(
+                None, marko_profiles_mod.create_marko_profile, raw_body
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except FileExistsError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            _log.exception("POST /api/profiles (marko) failed")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    try:
+        body = ProfileCreate(**raw_body)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
     from hermes_cli import profiles as profiles_mod
     explicit_source = (body.clone_from or "").strip()
     if explicit_source:
@@ -13065,7 +13100,33 @@ async def open_profile_terminal_endpoint(name: str):
 
 
 @app.patch("/api/profiles/{name}")
-async def rename_profile_endpoint(name: str, body: ProfileRename):
+async def rename_profile_endpoint(name: str, request: Request):
+    try:
+        raw_body = await request.json()
+    except Exception:
+        raw_body = {}
+    marko_keys = {"systemPrompt", "model", "temperature", "provider", "providerConfig", "settings", "name"}
+    if isinstance(raw_body, dict) and marko_keys.intersection(raw_body.keys()):
+        from hermes_cli import marko_profiles_api as marko_profiles_mod
+
+        try:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(
+                None, marko_profiles_mod.update_marko_profile, name, raw_body
+            )
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except (ValueError, FileExistsError) as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            _log.exception("PATCH /api/profiles/%s (marko) failed", name)
+            raise HTTPException(status_code=500, detail=str(e))
+
+    try:
+        body = ProfileRename(**raw_body)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
     from hermes_cli import profiles as profiles_mod
     try:
         path = profiles_mod.rename_profile(name, body.new_name)
@@ -13077,6 +13138,40 @@ async def rename_profile_endpoint(name: str, body: ProfileRename):
         _log.exception("PATCH /api/profiles/%s failed", name)
         raise HTTPException(status_code=500, detail=str(e))
     return {"ok": True, "name": body.new_name, "path": str(path)}
+
+
+@app.post("/api/profiles/{name}/default")
+async def set_profile_default_marko_endpoint(name: str):
+    from hermes_cli import marko_profiles_api as marko_profiles_mod
+
+    try:
+        loop = asyncio.get_running_loop()
+        default_id = await loop.run_in_executor(
+            None, marko_profiles_mod.set_marko_default_profile, name
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        _log.exception("POST /api/profiles/%s/default failed", name)
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"ok": True, "default_profile_id": default_id}
+
+
+@app.get("/api/settings")
+async def get_settings_marko_endpoint():
+    from hermes_cli import marko_profiles_api as marko_profiles_mod
+
+    try:
+        loop = asyncio.get_running_loop()
+        default_id = await loop.run_in_executor(
+            None, marko_profiles_mod.get_marko_default_profile_id
+        )
+    except Exception as e:
+        _log.exception("GET /api/settings failed")
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"default_profile_id": default_id}
 
 
 @app.delete("/api/profiles/{name}")

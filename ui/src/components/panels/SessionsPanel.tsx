@@ -11,7 +11,7 @@ import {
   Pencil,
 } from 'lucide-react'
 import { apiClient } from '@app/lib/api'
-import { fetchHermesSessions } from '@app/lib/hermes-adapters'
+import { fetchHermesProfiles, fetchHermesSessions } from '@app/lib/hermes-adapters'
 import { useSessionsStore } from '@app/stores/sessions'
 import { useUiStore } from '@app/stores/ui'
 import { formatRelativeTime } from '@app/lib/utils'
@@ -56,7 +56,7 @@ export function SessionsPanel({ compact }: SessionsPanelProps) {
 
   const { data: profiles } = useQuery({
     queryKey: ['profiles'],
-    queryFn: () => apiClient.get<Profile[]>('/api/profiles'),
+    queryFn: fetchHermesProfiles,
     retry: false,
   })
 
