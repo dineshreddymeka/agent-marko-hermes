@@ -439,7 +439,10 @@ function mergeSessionMessages(
 
 export async function checkLiveRun(sessionId: string): Promise<boolean> {
   try {
-    const res = await fetch(`/api/sessions/${sessionId}/live`, { credentials: 'include' })
+    const res = await fetch(`/api/sessions/${sessionId}/live`, {
+      credentials: 'include',
+      headers: hermesAuthHeaders(),
+    })
     if (!res.ok) return false
     const data = (await res.json()) as { live: boolean; runId?: string | null }
     if (data.live && data.runId) {

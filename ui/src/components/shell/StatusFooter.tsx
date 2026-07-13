@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useChatStore } from '@app/stores/chat'
 import { useSettingsStore } from '@app/stores/settings'
+import { hermesAuthHeaders } from '@app/lib/api'
 import { labelTitle, modelLabel } from '@app/lib/display-names'
 
 interface ContextRingProps {
@@ -61,7 +62,10 @@ export function StatusFooter() {
     let cancelled = false
     const tick = async () => {
       try {
-        const res = await fetch('/api/health', { credentials: 'include' })
+        const res = await fetch('/api/health', {
+          credentials: 'include',
+          headers: hermesAuthHeaders(),
+        })
         if (!res.ok) return
         const data = (await res.json()) as { llm?: HealthLlm }
         if (!cancelled && data.llm) setLlm(data.llm)

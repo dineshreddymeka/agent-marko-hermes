@@ -113,6 +113,53 @@ export async function fetchHermesSessions(limit = 100): Promise<Session[]> {
   return rows.map(hermesSessionToDto).filter((s) => s.id)
 }
 
+export async function createHermesSession(
+  title = 'New chat',
+  id?: string,
+): Promise<Session> {
+  const body: { title: string; id?: string } = { title }
+  if (id) body.id = id
+  const data = await apiClient.post<Session | HermesSessionRow>('/api/sessions', body)
+  // POST /api/sessions already returns Marko Session shape from Hermes;
+  // also accept raw Hermes rows.
+  if (data && typeof data === 'object' && 'createdAt' in data && 'id' in data) {
+    return data as Session
+  }
+  return hermesSessionToDto(data as HermesSessionRow)
+}
+
+export async function searchHermesSessions(query: string): Promise<Session[]> {
+  const q = query.trim()
+  if (!q) return fetchHermesSessions()
+  const data = await apiClient.get<HermesSessionsList | HermesSessionRow[]>(
+    '/api/sessions/search',
+    { q },
+  )
+  const rows = Array.isArray(data) ? data : (data.sessions ?? [])
+  return rows.map(hermesSessionToDto).filter((s) => s.id)
+}
+
+export async function patchHermesSession(
+  id: string,
+  patch: Partial<Pick<Session, 'title' | 'archived'>>,
+): Promise<Session> {
+  const body: Record<string, unknown> = {}
+  if (patch.title !== undefined) body.title = patch.title
+  if (patch.archived !== undefined) body.archived = patch.archived
+  const data = await apiClient.patch<Session | HermesSessionRow>(
+    `/api/sessions/${id}`,
+    body,
+  )
+  if (data && typeof data === 'object' && 'createdAt' in data && 'id' in data) {
+    return data as Session
+  }
+  return hermesSessionToDto({ ...(data as HermesSessionRow), id })
+}
+
+export async function deleteHermesSession(id: string): Promise<void> {
+  await apiClient.delete(`/api/sessions/${id}`)
+}
+
 export async function fetchHermesMessages(sessionId: string): Promise<Message[]> {
   const data = await apiClient.get<
     { messages?: HermesMessageRow[]; session_id?: string } | HermesMessageRow[]
