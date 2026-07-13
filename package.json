@@ -1,0 +1,21 @@
+{
+  "name": "agent-marko-hermes",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Agent-Marko UI + Hermes Agent backend — one-hop, no Bun middle layer",
+  "type": "module",
+  "workspaces": [
+    "ui",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:ui": "npm run dev -w app",
+    "build:ui": "npm run build -w app",
+    "dev": "node scripts/dev.mjs",
+    "build": "npm run build:ui",
+    "smoke:agui": "python scripts/smoke_agui.py"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

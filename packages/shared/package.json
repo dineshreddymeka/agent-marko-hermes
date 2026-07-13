@@ -1,0 +1,15 @@
+{
+  "name": "@hermes/shared",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./agui-events": "./src/agui-events.ts",
+    "./api-types": "./src/api-types.ts",
+    "./a2ui-catalog": "./src/a2ui-catalog.ts"
+  }
+}
