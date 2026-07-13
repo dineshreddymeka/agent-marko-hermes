@@ -10748,6 +10748,7 @@ def _redact_mcp_env(env: Dict[str, Any]) -> Dict[str, str]:
 def _mcp_server_summary(name: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
     transport = "http" if cfg.get("url") else ("stdio" if cfg.get("command") else "unknown")
     return {
+        "id": name,
         "name": name,
         "transport": transport,
         "url": cfg.get("url"),
@@ -10772,6 +10773,12 @@ async def list_mcp_servers(profile: Optional[str] = None):
             _mcp_server_summary(name, cfg) for name, cfg in sorted(servers.items())
         ]
     }
+
+
+@app.get("/api/mcp")
+async def list_mcp_alias(profile: Optional[str] = None):
+    """Marko alias — same payload as GET /api/mcp/servers."""
+    return await list_mcp_servers(profile)
 
 
 @app.post("/api/mcp/servers")
@@ -13289,41 +13296,123 @@ class SkillToggle(BaseModel):
     profile: Optional[str] = None
 
 
+def _skills_registry_for_profile(profile: Optional[str] = None) -> "SkillsRegistry":
+    from agent.skills_registry import SkillsRegistry
+    from hermes_constants import get_hermes_home
+
+    home = get_hermes_home()
+    return SkillsRegistry(db_path=home / "state.db")
+
+
 @app.get("/api/skills")
 async def get_skills(profile: Optional[str] = None):
-    from tools.skills_tool import _find_all_skills
+    """List all skills from the durable registry (sync from disk first)."""
     from hermes_cli.skills_config import get_disabled_skills
-    from tools.skill_usage import (
-        _read_bundled_manifest_names,
-        _read_hub_installed_names,
-        activity_count,
-        load_usage,
-    )
+
     with _profile_scope(profile):
         config = load_config()
         disabled = get_disabled_skills(config)
-        skills = _find_all_skills(skip_disabled=True)
-        usage = load_usage()
-        # Set-based provenance (same classification as skill_usage.provenance,
-        # without a per-skill manifest read): hub > bundled > agent, where
-        # "agent" covers agent-authored AND local hand-made skills — the ones
-        # the user may edit/delete from the UI.
-        bundled_names = _read_bundled_manifest_names()
-        hub_names = _read_hub_installed_names()
-    for s in skills:
-        s["enabled"] = s["name"] not in disabled
-        s["usage"] = activity_count(usage.get(s["name"], {}))
-        s["provenance"] = (
-            "hub" if s["name"] in hub_names
-            else "bundled" if s["name"] in bundled_names
-            else "agent"
-        )
-    return skills
+        registry = _skills_registry_for_profile(profile)
+        registry.sync_from_disk(disabled_names=disabled)
+        rows = registry.list_rows()
+    return rows
+
+
+@app.get("/api/skills/meta")
+async def get_skills_meta(profile: Optional[str] = None):
+    with _profile_scope(profile):
+        registry = _skills_registry_for_profile(profile)
+        return registry.meta()
+
+
+@app.get("/api/skills/{skill_id}")
+async def get_skill_by_id(skill_id: str, profile: Optional[str] = None):
+    """Lookup a single skill row by stable registry UUID (cron/MCP skillIds)."""
+    with _profile_scope(profile):
+        registry = _skills_registry_for_profile(profile)
+        row = registry.get_by_id(skill_id) or registry.get_by_name(skill_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Skill not found.")
+    return row
+
+
+class CronWizardPreviewBody(BaseModel):
+    schedule: Optional[str] = None
+    mcpServerIds: Optional[List[str]] = None
+    skillIds: Optional[List[str]] = None
+    profile: Optional[str] = None
+
+
+@app.post("/api/cron/wizard/preview")
+async def cron_wizard_preview(body: CronWizardPreviewBody, profile: Optional[str] = None):
+    """Validate cron wizard selections against live schedule + DB-backed skills/MCP."""
+    from hermes_cli.mcp_config import _get_mcp_servers
+
+    selected_profile = body.profile or profile
+    schedule_info = None
+    if body.schedule:
+        try:
+            from cron.jobs import parse_schedule
+
+            parsed = parse_schedule(body.schedule.strip())
+            schedule_info = {
+                "valid": True,
+                "preview": str(parsed),
+                "nextRun": None,
+            }
+        except Exception:
+            schedule_info = {"valid": False, "preview": "Invalid schedule", "nextRun": None}
+
+    mcp_ids = [str(x).strip() for x in (body.mcpServerIds or []) if str(x).strip()]
+    skill_ids = [str(x).strip() for x in (body.skillIds or []) if str(x).strip()]
+
+    with _profile_scope(selected_profile):
+        servers_cfg = _get_mcp_servers()
+        registry = _skills_registry_for_profile(selected_profile)
+        registry.sync_from_disk()
+        known_skills, unknown_skill_ids = registry.resolve_ids(skill_ids)
+
+    mcp_servers = []
+    unknown_mcp_ids = []
+    for mid in mcp_ids:
+        if mid in servers_cfg:
+            summary = _mcp_server_summary(mid, servers_cfg[mid])
+            mcp_servers.append({
+                "id": mid,
+                "name": summary["name"],
+                "enabled": summary.get("enabled", True),
+                "lastStatus": None,
+                "lastError": None,
+                "healthy": summary.get("enabled", True),
+            })
+        else:
+            unknown_mcp_ids.append(mid)
+
+    return {
+        "schedule": schedule_info,
+        "mcpServers": mcp_servers,
+        "unknownMcpIds": unknown_mcp_ids,
+        "skills": known_skills,
+        "unknownSkillIds": unknown_skill_ids,
+    }
+
+
+@app.post("/api/skills/sync")
+async def sync_skills(profile: Optional[str] = None):
+    from hermes_cli.skills_config import get_disabled_skills
+
+    with _profile_scope(profile):
+        config = load_config()
+        disabled = get_disabled_skills(config)
+        registry = _skills_registry_for_profile(profile)
+        result = registry.sync_from_disk(disabled_names=disabled)
+    return result.as_dict()
 
 
 @app.put("/api/skills/toggle")
 async def toggle_skill(body: SkillToggle, profile: Optional[str] = None):
     from hermes_cli.skills_config import get_disabled_skills, save_disabled_skills
+
     with _profile_scope(body.profile or profile):
         config = load_config()
         disabled = get_disabled_skills(config)
@@ -13332,6 +13421,8 @@ async def toggle_skill(body: SkillToggle, profile: Optional[str] = None):
         else:
             disabled.add(body.name)
         save_disabled_skills(config, disabled)
+        registry = _skills_registry_for_profile(body.profile or profile)
+        registry.set_enabled(body.name, body.enabled)
     return {"ok": True, "name": body.name, "enabled": body.enabled}
 
 
@@ -13363,10 +13454,14 @@ def _clear_skills_prompt_cache() -> None:
 
 @app.get("/api/skills/content")
 async def get_skill_content(name: str, profile: Optional[str] = None):
-    """Return the raw SKILL.md text for a skill, for the dashboard editor."""
+    """Return SKILL.md text — prefer registry cache, fall back to disk read."""
     from tools.skill_manager_tool import _find_skill
 
     with _profile_scope(profile):
+        registry = _skills_registry_for_profile(profile)
+        cached = registry.get_content(name)
+        if cached and cached.get("content"):
+            return cached
         found = _find_skill(name)
         if not found:
             raise HTTPException(status_code=404, detail=f"Skill '{name}' not found.")
@@ -13377,25 +13472,36 @@ async def get_skill_content(name: str, profile: Optional[str] = None):
             content = skill_md.read_text(encoding="utf-8")
         except OSError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+        registry.record_write(
+            name=name,
+            content=content,
+            path=str(skill_md),
+            provenance="agent",
+        )
         return {"name": name, "content": content, "path": str(skill_md)}
 
 
 @app.post("/api/skills")
 async def create_skill(body: SkillCreate):
-    """Create a new custom skill (SKILL.md) from the dashboard editor.
-
-    Calls the same validated write path as the agent's ``skill_manage``
-    tool (frontmatter validation, name/category validation, size limit,
-    optional security scan) — but bypasses the agent write-approval gate:
-    a write from the authenticated dashboard IS the user acting directly.
-    """
+    """Create a new custom skill (SKILL.md) from the dashboard editor."""
     from tools.skill_manager_tool import _create_skill
 
     with _profile_scope(body.profile):
         result = _create_skill(body.name, body.content, body.category or None)
-    if not result.get("success"):
-        raise HTTPException(status_code=400, detail=result.get("error", "Failed to create skill."))
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error", "Failed to create skill."))
+        registry = _skills_registry_for_profile(body.profile)
+        registry.record_write(
+            name=body.name,
+            content=body.content,
+            path=result.get("path"),
+            provenance="agent",
+            category=body.category,
+        )
+        row = registry.get_by_name(body.name)
     _clear_skills_prompt_cache()
+    if row:
+        return row
     return result
 
 
@@ -13406,12 +13512,47 @@ async def update_skill_content(body: SkillContentUpdate):
 
     with _profile_scope(body.profile):
         result = _edit_skill(body.name, body.content)
-    if not result.get("success"):
-        err = result.get("error", "Failed to update skill.")
-        status = 404 if "not found" in str(err).lower() else 400
-        raise HTTPException(status_code=status, detail=err)
+        if not result.get("success"):
+            err = result.get("error", "Failed to update skill.")
+            status = 404 if "not found" in str(err).lower() else 400
+            raise HTTPException(status_code=status, detail=err)
+        registry = _skills_registry_for_profile(body.profile)
+        registry.record_write(
+            name=body.name,
+            content=body.content,
+            path=result.get("path"),
+            provenance="agent",
+        )
+        row = registry.get_by_name(body.name)
     _clear_skills_prompt_cache()
+    if row:
+        return row
     return result
+
+
+@app.delete("/api/skills/{skill_id}")
+async def delete_skill(skill_id: str, profile: Optional[str] = None):
+    """Delete a skill row and uninstall/remove disk content when allowed."""
+    from tools.skill_manager_tool import _delete_skill
+    from tools.skill_usage import provenance as skill_provenance
+
+    with _profile_scope(profile):
+        registry = _skills_registry_for_profile(profile)
+        row = registry.get_by_id(skill_id) or registry.get_by_name(skill_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Skill not found.")
+        name = row["name"]
+        prov = skill_provenance(name)
+        if prov == "bundled":
+            raise HTTPException(status_code=400, detail="Built-in skills cannot be deleted.")
+        delete_result = _delete_skill(name)
+        if not delete_result.get("success"):
+            err = delete_result.get("error", "Delete failed.")
+            status = 404 if "not found" in str(err).lower() else 400
+            raise HTTPException(status_code=status, detail=err)
+        registry.delete_row(name)
+    _clear_skills_prompt_cache()
+    return {"ok": True, "id": skill_id, "name": name}
 
 
 @app.get("/api/tools/toolsets")
