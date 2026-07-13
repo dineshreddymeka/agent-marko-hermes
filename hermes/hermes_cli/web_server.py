@@ -13156,7 +13156,7 @@ async def set_profile_default_marko_endpoint(name: str):
     except Exception as e:
         _log.exception("POST /api/profiles/%s/default failed", name)
         raise HTTPException(status_code=500, detail=str(e))
-    return {"ok": True, "default_profile_id": default_id}
+    return {"ok": True, "active": default_id, "default_profile_id": default_id}
 
 
 @app.get("/api/settings")
