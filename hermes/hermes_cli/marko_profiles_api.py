@@ -137,8 +137,21 @@ def _profile_info_to_marko(info: profiles_mod.ProfileInfo) -> Dict[str, Any]:
         temperature = float(temperature)
     except (TypeError, ValueError):
         temperature = _DEFAULT_TEMPERATURE
-    provider_config = marko.get("providerConfig")
     settings = marko.get("settings")
+    if not isinstance(settings, dict):
+        settings = {}
+    settings = {
+        **settings,
+        "skillCount": info.skill_count,
+        "isDefault": info.is_default,
+        "gatewayRunning": info.gateway_running,
+        "hasEnv": info.has_env,
+    }
+    provider_config = marko.get("providerConfig")
+    if info.provider and not isinstance(provider_config, dict):
+        provider_config = {"hermesProvider": info.provider}
+    elif isinstance(provider_config, dict) and info.provider:
+        provider_config = {**provider_config, "hermesProvider": info.provider}
     return {
         "id": info.name,
         "name": str(display_name),
@@ -147,7 +160,7 @@ def _profile_info_to_marko(info: profiles_mod.ProfileInfo) -> Dict[str, Any]:
         "temperature": temperature,
         "provider": _normalize_marko_provider(marko.get("provider")),
         "providerConfig": provider_config if isinstance(provider_config, dict) else None,
-        "settings": settings if isinstance(settings, dict) else None,
+        "settings": settings,
     }
 
 

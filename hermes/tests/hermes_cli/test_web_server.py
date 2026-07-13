@@ -4285,6 +4285,7 @@ class TestNewEndpoints:
         default = self.client.post("/api/profiles/marko-agent/default")
         assert default.status_code == 200
         assert default.json()["default_profile_id"] == "marko-agent"
+        assert default.json()["active"] == "marko-agent"
 
         settings = self.client.get("/api/settings")
         assert settings.status_code == 200
@@ -4295,6 +4296,15 @@ class TestNewEndpoints:
 
         after = self.client.get("/api/profiles", params={"marko": 1}).json()
         assert all(p["id"] != "marko-agent" for p in after)
+
+    def test_profiles_set_default_compat_shim(self, monkeypatch):
+        import hermes_cli.profiles as profiles_mod
+        monkeypatch.setattr(profiles_mod, "create_wrapper_script", lambda name: None)
+
+        self.client.post("/api/profiles", json={"name": "marko-prof"})
+        resp = self.client.post("/api/profiles/marko-prof/default")
+        assert resp.status_code == 200
+        assert resp.json()["active"] == "marko-prof"
 
     def test_profile_description_round_trip(self, monkeypatch):
         import hermes_cli.profiles as profiles_mod

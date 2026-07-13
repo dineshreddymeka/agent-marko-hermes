@@ -14,7 +14,7 @@ import {
 } from '@app/lib/hermes-adapters'
 import { EmptyState } from '@app/components/common/EmptyState'
 import { Skeleton } from '@app/components/common/Skeleton'
-import { labelTitle, modelLabel } from '@app/lib/display-names'
+import { modelLabel, prettifyIdentifier } from '@app/lib/display-names'
 import { profileProviderLabel } from '@app/lib/labels'
 
 const emptyForm = {
@@ -22,7 +22,13 @@ const emptyForm = {
   systemPrompt: 'You are Open Jarvis, a helpful AI assistant.',
   model: 'composer-2.5',
   temperature: 0.7,
-  provider: 'native' as Profile['provider'],
+  provider: 'hermes-python' as Profile['provider'],
+}
+
+function profileProviderDisplay(profile: Profile): string {
+  const hermes = profile.providerConfig?.hermesProvider
+  if (typeof hermes === 'string' && hermes) return prettifyIdentifier(hermes)
+  return profileProviderLabel(profile.provider)
 }
 
 export function ProfilesPanel() {
@@ -81,6 +87,7 @@ export function ProfilesPanel() {
         setModel(profile.model)
       }
       void queryClient.invalidateQueries({ queryKey: ['profiles'] })
+      void queryClient.invalidateQueries({ queryKey: ['settings'] })
     },
     onError: () => addToast({ title: 'Save failed', variant: 'danger' }),
   })
@@ -101,9 +108,22 @@ export function ProfilesPanel() {
     onSuccess: () => {
       addToast({ title: 'Profile deleted', variant: 'success' })
       void queryClient.invalidateQueries({ queryKey: ['profiles'] })
+      void queryClient.invalidateQueries({ queryKey: ['settings'] })
     },
     onError: () => addToast({ title: 'Delete failed', variant: 'danger' }),
   })
+
+  const beginEdit = (profile: Profile) => {
+    setShowForm(false)
+    setEditing(profile)
+    setForm({
+      name: profile.name,
+      systemPrompt: profile.systemPrompt,
+      model: profile.model,
+      temperature: profile.temperature,
+      provider: profile.provider,
+    })
+  }
 
   if (isLoading) return <Skeleton className="m-4 h-20 w-full" />
 
@@ -122,6 +142,9 @@ export function ProfilesPanel() {
   }
 
   const formOpen = showForm || !!editing
+  const activeProfileId =
+    (typeof settings?.default_profile_id === 'string' && settings.default_profile_id) ||
+    defaultProfileId
 
   return (
     <div className="p-4">
@@ -152,7 +175,7 @@ export function ProfilesPanel() {
             value={form.systemPrompt}
             onChange={(e) => setForm((f) => ({ ...f, systemPrompt: e.target.value }))}
             rows={4}
-            placeholder="System prompt"
+            placeholder="System prompt (SOUL.md)"
             className="w-full rounded border border-border bg-canvas px-2 py-1 text-sm"
           />
           <div className="flex flex-wrap gap-2">
@@ -178,9 +201,9 @@ export function ProfilesPanel() {
               }
               className="rounded border border-border bg-canvas px-2 py-1 text-sm"
             >
+              <option value="hermes-python">{profileProviderLabel('hermes-python')}</option>
               <option value="native">{profileProviderLabel('native')}</option>
               <option value="agui-remote">{profileProviderLabel('agui-remote')}</option>
-              <option value="hermes-python">{profileProviderLabel('hermes-python')}</option>
             </select>
           </div>
           <button
@@ -197,14 +220,12 @@ export function ProfilesPanel() {
       {!profiles?.length ? (
         <EmptyState
           title="No profiles"
-          description="Create agent profiles with custom prompts for Open Jarvis."
+          description="Create Hermes agent profiles with isolated config, skills, and SOUL.md."
         />
       ) : (
         <ul className="space-y-2">
           {profiles.map((profile) => {
-            const isDefault =
-              defaultProfileId === profile.id ||
-              settings?.default_profile_id === profile.id
+            const isDefault = activeProfileId === profile.id
             return (
               <li key={profile.id} className="rounded-lg border border-border p-3">
                 <div className="flex items-center justify-between gap-2">
@@ -225,17 +246,7 @@ export function ProfilesPanel() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setShowForm(false)
-                        setEditing(profile)
-                        setForm({
-                          name: profile.name,
-                          systemPrompt: profile.systemPrompt,
-                          model: profile.model,
-                          temperature: profile.temperature,
-                          provider: profile.provider,
-                        })
-                      }}
+                      onClick={() => beginEdit(profile)}
                       className="text-xs text-accent hover:underline"
                     >
                       Edit
@@ -256,10 +267,11 @@ export function ProfilesPanel() {
                     </button>
                     <button
                       type="button"
+                      disabled={profile.id === 'default'}
                       onClick={() => {
                         if (confirm(`Delete profile “${profile.name}”?`)) remove.mutate(profile.id)
                       }}
-                      className="rounded p-1 text-fg-muted hover:text-danger"
+                      className="rounded p-1 text-fg-muted hover:text-danger disabled:opacity-40"
                     >
                       <Trash2 size={14} />
                     </button>
@@ -268,9 +280,13 @@ export function ProfilesPanel() {
                 <p className="mt-1 text-xs text-fg-muted">
                   <span title={profile.model}>{modelLabel(profile.model)}</span>
                   {' · '}
-                  <span title={profile.provider}>{profileProviderLabel(profile.provider)}</span>
+                  <span title={String(profile.providerConfig?.hermesProvider ?? profile.provider)}>
+                    {profileProviderDisplay(profile)}
+                  </span>
                   {' · temp '}
                   {profile.temperature}
+                  {' · '}
+                  {Number(profile.settings?.skillCount ?? 0)} skills
                 </p>
                 <p className="mt-2 line-clamp-2 text-xs text-fg-subtle">{profile.systemPrompt}</p>
               </li>
