@@ -11,17 +11,13 @@ import {
   Pencil,
 } from 'lucide-react'
 import { apiClient } from '@app/lib/api'
-import {
-  deleteHermesSession,
-  fetchHermesSessionSearch,
-  fetchHermesSessions,
-  patchHermesSession,
-} from '@app/lib/hermes-adapters'
+import { fetchHermesSessions } from '@app/lib/hermes-adapters'
+import { fetchHermesProfiles } from '@app/lib/profiles-api'
 import { useSessionsStore } from '@app/stores/sessions'
 import { useUiStore } from '@app/stores/ui'
 import { formatRelativeTime } from '@app/lib/utils'
 import { groupSessions, mergeSessionSearch } from '@app/lib/panels'
-import type { Profile, Session } from '@hermes/shared'
+import type { Profile, SearchResult, Session } from '@hermes/shared'
 import { EmptyState } from '@app/components/common/EmptyState'
 import { Skeleton } from '@app/components/common/Skeleton'
 
@@ -61,22 +57,21 @@ export function SessionsPanel({ compact }: SessionsPanelProps) {
 
   const { data: profiles } = useQuery({
     queryKey: ['profiles'],
-    queryFn: () => apiClient.get<Profile[]>('/api/profiles'),
+    queryFn: fetchHermesProfiles,
     retry: false,
   })
 
-  const { data: searchResults } = useQuery({
+  const { data: searchPayload } = useQuery({
     queryKey: ['session-search', query],
-    queryFn: () => fetchHermesSessionSearch(query),
+    queryFn: () =>
+      apiClient.get<{ query: string; results: SearchResult[] }>('/api/search', { q: query }),
     enabled: query.trim().length > 1,
     retry: false,
   })
 
   const patchSession = useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: Partial<Session> }) => {
-      const current = sessions.find((s) => s.id === id)
-      return patchHermesSession(id, patch, current)
-    },
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<Session> }) =>
+      apiClient.patch<Session>(`/api/sessions/${id}`, patch),
     onMutate: async ({ id, patch }) => {
       updateSession(id, patch)
     },
@@ -92,7 +87,7 @@ export function SessionsPanel({ compact }: SessionsPanelProps) {
   })
 
   const deleteSession = useMutation({
-    mutationFn: (id: string) => deleteHermesSession(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/sessions/${id}`),
     onMutate: (id) => {
       removeSession(id)
     },
@@ -110,11 +105,11 @@ export function SessionsPanel({ compact }: SessionsPanelProps) {
     const base = showArchived ? sessions : sessions.filter((s) => !s.archived)
     const { sessions: merged, previews } = mergeSessionSearch(
       base,
-      searchResults,
+      searchPayload?.results,
       query,
     )
     return { list: merged, previews }
-  }, [sessions, showArchived, query, searchResults])
+  }, [sessions, showArchived, query, searchPayload])
 
   const groups = useMemo(() => groupSessions(visible.list), [visible.list])
 
