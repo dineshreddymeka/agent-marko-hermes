@@ -10747,6 +10747,8 @@ class MCPServerCreate(BaseModel):
     args: List[str] = []
     # env: KEY=VALUE map for stdio servers (API keys, etc.)
     env: Dict[str, str] = {}
+    # HTTP auth headers (values may use ${ENV_VAR} placeholders)
+    headers: Dict[str, str] = {}
     # auth: "oauth" | "header" | None
     auth: Optional[str] = None
     profile: Optional[str] = None
@@ -10828,6 +10830,8 @@ async def add_mcp_server(body: MCPServerCreate, profile: Optional[str] = None):
             server_config["args"] = list(body.args)
     if body.env:
         server_config["env"] = dict(body.env)
+    if body.headers:
+        server_config["headers"] = dict(body.headers)
     if body.auth:
         server_config["auth"] = body.auth
 
