@@ -3,6 +3,7 @@ import type { ComponentType } from 'react'
 import { SessionsPanel } from '@app/components/panels/SessionsPanel'
 import { WorkspacePanel } from '@app/components/panels/WorkspacePanel'
 import { SkillsPanel } from '@app/components/panels/SkillsPanel'
+import { MemoryPanel } from '@app/components/panels/MemoryPanel'
 import { DescopedPanel } from '@app/components/panels/DescopedPanel'
 import { ConnectionsPanel } from '@app/components/panels/ConnectionsPanel'
 import { CronPanel } from '@app/components/panels/CronPanel'
@@ -11,9 +12,6 @@ import { SettingsPanel } from '@app/components/panels/SettingsPanel'
 import { panelLabel, resolvePanelRoute } from '@app/lib/labels'
 import type { PanelName } from '@app/stores/ui'
 
-function MemoryDescoped() {
-  return <DescopedPanel feature="Memory (pgvector)" />
-}
 function OfficeDescoped() {
   return <DescopedPanel feature="Office / Cowork" />
 }
@@ -25,7 +23,7 @@ const panelComponents: Record<PanelName, ComponentType> = {
   sessions: SessionsPanel,
   workspace: WorkspacePanel,
   skills: SkillsPanel,
-  memory: MemoryDescoped,
+  memory: MemoryPanel,
   connections: ConnectionsPanel,
   office: OfficeDescoped,
   briefing: OfficeDescoped,
