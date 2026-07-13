@@ -100,7 +100,10 @@ class TestSkillCreate:
             json={"name": "my-new-skill", "content": SKILL_MD.format(name="my-new-skill")},
         )
         assert resp.status_code == 200
-        assert resp.json()["success"] is True
+        data = resp.json()
+        assert data["name"] == "my-new-skill"
+        assert "id" in data
+        assert "bodyMd" in data
         skill_md = isolated_profiles["default"] / "skills" / "my-new-skill" / "SKILL.md"
         assert skill_md.exists()
         assert "Do the thing." in skill_md.read_text(encoding="utf-8")

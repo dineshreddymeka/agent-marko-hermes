@@ -2,15 +2,13 @@
  * Open Jarvis — Skills panel (enterprise library UX).
  * Author: Dinesh Reddy Meka
  *
- * Density pattern: Connections / Scheduled Tasks — header → meta → toolbar →
- * list/cards → detail editor. Register writes SKILL.md under SKILLS_DIR + DB +
- * embedding; Sync rescans disk and auto-recreates missing DB rows.
+ * Wired to Hermes FastAPI: GET /api/skills, PUT /api/skills/toggle,
+ * GET/PUT /api/skills/content, POST /api/skills, and hub routes.
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Download,
-  FileWarning,
   FolderSync,
   HelpCircle,
   Loader2,
@@ -21,13 +19,29 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { apiClient } from '@app/lib/api'
 import { useUiStore } from '@app/stores/ui'
-import type { Skill, SkillsMeta, SkillsSyncResult } from '@hermes/shared'
+import type { Skill } from '@hermes/shared'
 import { EmptyState } from '@app/components/common/EmptyState'
 import { Skeleton } from '@app/components/common/Skeleton'
 import { copyToClipboard, formatRelativeTime } from '@app/lib/utils'
 import { skillSourceLabel, skillStatusLabel } from '@app/lib/labels'
+import {
+  createHermesSkill,
+  deleteHermesSkill,
+  fetchHermesSkillContent,
+  fetchHermesSkills,
+  fetchHermesSkillsMeta,
+  getHermesSkillHubSources,
+  installHermesSkillFromHub,
+  isHubInstalledSkill,
+  saveHermesSkillContent,
+  searchHermesSkillsHub,
+  syncHermesSkills,
+  toggleHermesSkill,
+  uninstallHermesHubSkill,
+  updateHermesSkillsHub,
+  type HermesSkillHubResult,
+} from '@app/lib/hermes-skills'
 import {
   defaultSkillBody,
   filterSkills,
@@ -84,34 +98,32 @@ export function SkillsPanel() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
-  const [gitUrl, setGitUrl] = useState('')
+  const [savedDraft, setSavedDraft] = useState('')
+  const [contentLoading, setContentLoading] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
+  const [showHub, setShowHub] = useState(false)
   const [newName, setNewName] = useState('')
   const [newDescription, setNewDescription] = useState('')
   const [newBody, setNewBody] = useState(defaultSkillBody())
+  const [hubQuery, setHubQuery] = useState('')
+  const [hubSource, setHubSource] = useState('all')
+  const [hubResults, setHubResults] = useState<HermesSkillHubResult[]>([])
 
   const { data: skills, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['skills'],
-    queryFn: () => apiClient.get<Skill[]>('/api/skills'),
+    queryFn: fetchHermesSkills,
     retry: false,
   })
 
   const { data: meta, refetch: refetchMeta } = useQuery({
     queryKey: ['skills-meta'],
-    queryFn: () => apiClient.get<SkillsMeta>('/api/skills/meta'),
-    retry: false,
-  })
-
-  const { data: sources } = useQuery({
-    queryKey: ['skill-sources'],
-    queryFn: () => apiClient.get<{ sources: string[] }>('/api/skills/sources'),
+    queryFn: fetchHermesSkillsMeta,
     retry: false,
   })
 
   const sync = useMutation({
-    mutationFn: async (_opts?: { quiet?: boolean }) =>
-      apiClient.post<SkillsSyncResult>('/api/skills/sync'),
+    mutationFn: async (_opts?: { quiet?: boolean }) => syncHermesSkills(),
     onSuccess: (res, vars) => {
       if (!vars?.quiet) {
         addToast({
@@ -126,17 +138,12 @@ export function SkillsPanel() {
     onError: () => addToast({ title: 'Sync failed', variant: 'danger' }),
   })
 
-  // Auto-sync on panel open when never synced or stale (>1h)
-  const autoSyncedRef = useRef(false)
-  useEffect(() => {
-    if (autoSyncedRef.current || meta === undefined) return
-    const last = meta?.lastSyncedAt ? Date.parse(meta.lastSyncedAt) : 0
-    const stale = !last || Date.now() - last > 60 * 60 * 1000
-    if (stale) {
-      autoSyncedRef.current = true
-      sync.mutate({ quiet: true })
-    }
-  }, [meta, sync])
+  const { data: hubSources } = useQuery({
+    queryKey: ['skill-hub-sources'],
+    queryFn: getHermesSkillHubSources,
+    retry: false,
+    enabled: showHub,
+  })
 
   const selected = skills?.find((s) => s.id === selectedId) ?? null
 
@@ -150,32 +157,63 @@ export function SkillsPanel() {
     [skills, query, sourceFilter, statusFilter],
   )
 
+  const enabledCount = skills?.filter((s) => s.enabled).length ?? 0
+
+  useEffect(() => {
+    if (!selected) {
+      setDraft('')
+      setSavedDraft('')
+      return
+    }
+    let cancelled = false
+    setContentLoading(true)
+    fetchHermesSkillContent(selected.name)
+      .then((res) => {
+        if (cancelled) return
+        setDraft(res.content)
+        setSavedDraft(res.content)
+      })
+      .catch(() => {
+        if (!cancelled) addToast({ title: 'Could not load SKILL.md', variant: 'danger' })
+      })
+      .finally(() => {
+        if (!cancelled) setContentLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selected, addToast])
+
   const save = useMutation({
-    mutationFn: () => apiClient.patch<Skill>(`/api/skills/${selectedId}`, { bodyMd: draft }),
+    mutationFn: () => saveHermesSkillContent(selected!.name, draft),
     onSuccess: (skill) => {
       addToast({ title: 'Skill saved', variant: 'success' })
-      setDraft(skill.bodyMd)
+      setSavedDraft(skill.bodyMd)
       void queryClient.invalidateQueries({ queryKey: ['skills'] })
     },
     onError: () => addToast({ title: 'Save failed', variant: 'danger' }),
   })
 
   const create = useMutation({
-    mutationFn: () =>
-      apiClient.post<Skill>('/api/skills', {
-        name: newName.trim(),
-        description: newDescription.trim() || null,
-        bodyMd: newBody.replace(/^---\nname:.*$/m, `---\nname: ${newName.trim()}`),
-        source: 'user-folder',
-      }),
+    mutationFn: () => {
+      const name = newName.trim()
+      const content = newBody.replace(/^---\nname:.*$/m, `---\nname: ${name}`)
+      if (newDescription.trim()) {
+        const withDesc = content.replace(
+          /^---\nname:.*\ndescription:.*$/m,
+          `---\nname: ${name}\ndescription: ${newDescription.trim()}`,
+        )
+        return createHermesSkill(name, withDesc)
+      }
+      return createHermesSkill(name, content)
+    },
     onSuccess: (skill) => {
-      addToast({ title: 'Skill registered', description: 'Written to SKILLS_DIR + indexed', variant: 'success' })
+      addToast({ title: 'Skill created', description: skill.name, variant: 'success' })
       setShowCreate(false)
       setNewName('')
       setNewDescription('')
       setNewBody(defaultSkillBody())
       setSelectedId(skill.id)
-      setDraft(skill.bodyMd)
       void queryClient.invalidateQueries({ queryKey: ['skills'] })
       void queryClient.invalidateQueries({ queryKey: ['skills-meta'] })
     },
@@ -183,9 +221,12 @@ export function SkillsPanel() {
   })
 
   const remove = useMutation({
-    mutationFn: (id: string) => apiClient.delete(`/api/skills/${id}`),
+    mutationFn: (skill: Skill) =>
+      isHubInstalledSkill(skill)
+        ? uninstallHermesHubSkill(skill.name)
+        : deleteHermesSkill(skill.id),
     onSuccess: () => {
-      addToast({ title: 'Skill deleted', variant: 'success' })
+      addToast({ title: 'Skill removed', variant: 'success' })
       setSelectedId(null)
       void queryClient.invalidateQueries({ queryKey: ['skills'] })
       void refetchMeta()
@@ -194,11 +235,10 @@ export function SkillsPanel() {
   })
 
   const toggleEnabled = useMutation({
-    mutationFn: (skill: Skill) =>
-      apiClient.patch<Skill>(`/api/skills/${skill.id}`, { enabled: !skill.enabled }),
-    onSuccess: (skill) => {
+    mutationFn: (skill: Skill) => toggleHermesSkill(skill.name, !skill.enabled),
+    onSuccess: (_res, skill) => {
       addToast({
-        title: skill.enabled ? 'Skill enabled' : 'Skill disabled',
+        title: skill.enabled ? 'Skill disabled' : 'Skill enabled',
         variant: 'success',
       })
       void queryClient.invalidateQueries({ queryKey: ['skills'] })
@@ -206,28 +246,32 @@ export function SkillsPanel() {
     onError: () => addToast({ title: 'Update failed', variant: 'danger' }),
   })
 
-  const recreate = useMutation({
-    mutationFn: (id: string) =>
-      apiClient.post<{ skill: Skill; path: string }>(`/api/skills/${id}/recreate`),
-    onSuccess: (res) => {
-      addToast({ title: 'Recreated on disk', description: res.path, variant: 'success' })
-      if (res.skill) {
-        setSelectedId(res.skill.id)
-        setDraft(res.skill.bodyMd)
-      }
-      void queryClient.invalidateQueries({ queryKey: ['skills'] })
-    },
-    onError: () => addToast({ title: 'Recreate failed', variant: 'danger' }),
+  const hubSearch = useMutation({
+    mutationFn: () => searchHermesSkillsHub(hubQuery.trim(), hubSource),
+    onSuccess: (res) => setHubResults(res.results),
+    onError: () => addToast({ title: 'Hub search failed', variant: 'danger' }),
   })
 
-  const addSource = useMutation({
-    mutationFn: () => apiClient.post('/api/skills/sources', { url: gitUrl }),
-    onSuccess: () => {
-      setGitUrl('')
-      addToast({ title: 'Git source added', variant: 'success' })
-      void queryClient.invalidateQueries({ queryKey: ['skill-sources'] })
+  const hubInstall = useMutation({
+    mutationFn: (identifier: string) => installHermesSkillFromHub(identifier),
+    onSuccess: (res) => {
+      addToast({
+        title: 'Installing skill',
+        description: res.name,
+        variant: 'success',
+      })
+      void queryClient.invalidateQueries({ queryKey: ['skills'] })
     },
-    onError: () => addToast({ title: 'Could not add source', variant: 'danger' }),
+    onError: () => addToast({ title: 'Install failed', variant: 'danger' }),
+  })
+
+  const hubUpdate = useMutation({
+    mutationFn: () => updateHermesSkillsHub(),
+    onSuccess: (res) => {
+      addToast({ title: 'Updating hub skills', description: res.name, variant: 'success' })
+      void queryClient.invalidateQueries({ queryKey: ['skills'] })
+    },
+    onError: () => addToast({ title: 'Update failed', variant: 'danger' }),
   })
 
   if (isLoading) {
@@ -254,16 +298,15 @@ export function SkillsPanel() {
     )
   }
 
-  const dirty = selected ? draft !== selected.bodyMd : false
+  const dirty = selected ? draft !== savedDraft && !contentLoading : false
 
   return (
     <div className="flex h-full flex-col gap-3 p-4">
-      {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 className="text-sm font-medium text-fg">Skills</h2>
           <p className="mt-0.5 text-xs text-fg-muted">
-            SKILL.md library — register writes disk + DB; sync auto-recreates missing rows.
+            DB-backed SKILL.md registry — {enabledCount} of {skills?.length ?? 0} enabled.
             {meta?.lastSyncedAt ? (
               <>
                 {' '}
@@ -276,6 +319,14 @@ export function SkillsPanel() {
         <div className="flex flex-wrap gap-1">
           <button type="button" className={btnGhost} onClick={() => setShowHelp((v) => !v)} title="Help">
             <HelpCircle size={12} /> Help
+          </button>
+          <button
+            type="button"
+            className={btnGhost}
+            onClick={() => setShowHub((v) => !v)}
+            data-testid="skills-hub"
+          >
+            <Search size={12} /> Browse hub
           </button>
           <button
             type="button"
@@ -293,7 +344,17 @@ export function SkillsPanel() {
             data-testid="skills-sync"
           >
             {sync.isPending ? <Loader2 size={12} className="animate-spin" /> : <FolderSync size={12} />}
-            Sync from folder
+            Sync to DB
+          </button>
+          <button
+            type="button"
+            className={btnGhost}
+            disabled={hubUpdate.isPending}
+            onClick={() => hubUpdate.mutate()}
+            data-testid="skills-hub-update"
+          >
+            {hubUpdate.isPending ? <Loader2 size={12} className="animate-spin" /> : <FolderSync size={12} />}
+            Update hub
           </button>
         </div>
       </div>
@@ -301,36 +362,29 @@ export function SkillsPanel() {
       {showHelp && (
         <div className="rounded-lg border border-border bg-canvas-subtle p-3 text-xs text-fg-muted">
           <div className="mb-1 flex items-center justify-between">
-            <p className="font-medium text-fg">Register &amp; sync</p>
+            <p className="font-medium text-fg">Hermes skills</p>
             <button type="button" onClick={() => setShowHelp(false)} className="text-fg-subtle">
               <X size={12} />
             </button>
           </div>
           <ul className="list-inside list-disc space-y-1">
             <li>
-              <strong className="text-fg">Create</strong> registers a skill: writes{' '}
-              <code className="text-[10px]">SKILLS_DIR/&lt;slug&gt;/SKILL.md</code>, upserts the DB
-              row, and queues an embedding for retrieval.
+              <strong className="text-fg">Create</strong> writes a new SKILL.md under your Hermes
+              profile via <code className="text-[10px]">POST /api/skills</code>.
             </li>
             <li>
-              <strong className="text-fg">Sync from folder</strong> scans{' '}
-              <code className="text-[10px]">{meta?.skillsDir ?? 'SKILLS_DIR'}</code>, upserts by
-              path/slug, re-embeds when content changes, and marks orphans missing.
+              <strong className="text-fg">Enable/disable</strong> toggles config via{' '}
+              <code className="text-[10px]">PUT /api/skills/toggle</code>.
             </li>
             <li>
-              Boot auto-sync recreates DB rows for disk-only skills. Use{' '}
-              <strong className="text-fg">Recreate on disk</strong> when a DB row has no file.
+              <strong className="text-fg">Browse hub</strong> searches and installs from the skills
+              hub (<code className="text-[10px]">/api/skills/hub/*</code>).
             </li>
-            <li>
-              Point at legacy Hermes skills:{' '}
-              <code className="text-[10px]">SKILLS_DIR=%LOCALAPPDATA%/hermes/skills</code> in{' '}
-              <code className="text-[10px]">.env</code>, then Sync.
-            </li>
+            <li>Built-in skills ship with Hermes; hub skills can be uninstalled from the panel.</li>
           </ul>
         </div>
       )}
 
-      {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-[12rem] flex-1">
           <Search size={14} className="absolute left-2 top-2.5 text-fg-muted" />
@@ -351,7 +405,7 @@ export function SkillsPanel() {
           <option value="all">All sources</option>
           <option value="builtin">Built-in</option>
           <option value="user-folder">User folder</option>
-          <option value="git">Git</option>
+          <option value="git">Hub / Git</option>
           <option value="learned">Learned</option>
         </select>
         <select
@@ -367,24 +421,86 @@ export function SkillsPanel() {
         </select>
       </div>
 
-      {/* Git sources (compact) */}
-      <div className="flex flex-wrap items-center gap-2 rounded border border-border px-2 py-1.5">
-        <span className="text-[10px] font-medium uppercase text-fg-muted">Git sources</span>
-        <input
-          value={gitUrl}
-          onChange={(e) => setGitUrl(e.target.value)}
-          placeholder="https://github.com/…/skills"
-          className="min-w-0 flex-1 rounded border border-border bg-canvas px-2 py-1 text-xs"
-        />
-        <button type="button" className={btnGhost} onClick={() => addSource.mutate()} disabled={!gitUrl.trim()}>
-          Add
-        </button>
-        {(sources?.sources ?? []).map((url) => (
-          <span key={url} className="truncate font-mono text-[10px] text-fg-subtle" title={url}>
-            {url}
-          </span>
-        ))}
-      </div>
+      {showHub && (
+        <div className="space-y-2 rounded-lg border border-border p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-medium uppercase text-fg-muted">Skills hub</span>
+            <input
+              value={hubQuery}
+              onChange={(e) => setHubQuery(e.target.value)}
+              placeholder="Search hub…"
+              className="min-w-0 flex-1 rounded border border-border bg-canvas px-2 py-1 text-xs"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && hubQuery.trim()) hubSearch.mutate()
+              }}
+            />
+            <select
+              value={hubSource}
+              onChange={(e) => setHubSource(e.target.value)}
+              className="rounded border border-border bg-canvas px-2 py-1 text-xs text-fg"
+            >
+              <option value="all">All sources</option>
+              {(hubSources?.sources ?? []).map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className={btnGhost}
+              disabled={!hubQuery.trim() || hubSearch.isPending}
+              onClick={() => hubSearch.mutate()}
+            >
+              {hubSearch.isPending ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+              Search
+            </button>
+          </div>
+          {hubResults.length > 0 && (
+            <ul className="max-h-40 space-y-1 overflow-y-auto">
+              {hubResults.map((hit) => (
+                <li
+                  key={hit.identifier}
+                  className="flex items-start justify-between gap-2 rounded border border-border px-2 py-1.5"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-medium text-fg">{hit.name}</p>
+                    <p className="line-clamp-2 text-[10px] text-fg-muted">{hit.description}</p>
+                    <p className="truncate font-mono text-[10px] text-fg-subtle">{hit.identifier}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className={btnPrimary}
+                    disabled={hubInstall.isPending}
+                    onClick={() => hubInstall.mutate(hit.identifier)}
+                  >
+                    Install
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {(hubSources?.featured ?? []).length > 0 && hubResults.length === 0 && (
+            <div>
+              <p className="mb-1 text-[10px] font-medium uppercase text-fg-muted">Featured</p>
+              <ul className="flex flex-wrap gap-1">
+                {hubSources!.featured.slice(0, 6).map((hit) => (
+                  <button
+                    key={hit.identifier}
+                    type="button"
+                    className={btnGhost}
+                    disabled={hubInstall.isPending}
+                    onClick={() => hubInstall.mutate(hit.identifier)}
+                    title={hit.description}
+                  >
+                    {hit.name}
+                  </button>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       {showCreate && (
         <div className="space-y-2 rounded-lg border border-accent/40 bg-accent-muted/30 p-3">
@@ -422,26 +538,25 @@ export function SkillsPanel() {
             className={btnPrimary}
           >
             {create.isPending ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
-            Register skill
+            Create skill
           </button>
         </div>
       )}
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 md:flex-row">
-        {/* List */}
         <div className="flex w-full flex-col md:w-96">
           {!list.length ? (
             <EmptyState
               title="No skills yet"
-              description="Create a skill, drop SKILL.md folders into SKILLS_DIR, or sync from disk."
+              description="Create a skill or install from the skills hub."
               className="py-8"
               action={
                 <div className="flex gap-2">
                   <button type="button" className={btnPrimary} onClick={() => setShowCreate(true)}>
                     Create skill
                   </button>
-                  <button type="button" className={btnGhost} onClick={() => sync.mutate({})}>
-                    Sync from folder
+                  <button type="button" className={btnGhost} onClick={() => setShowHub(true)}>
+                    Browse hub
                   </button>
                 </div>
               }
@@ -452,10 +567,7 @@ export function SkillsPanel() {
                 <li key={skill.id}>
                   <button
                     type="button"
-                    onClick={() => {
-                      setSelectedId(skill.id)
-                      setDraft(skill.bodyMd)
-                    }}
+                    onClick={() => setSelectedId(skill.id)}
                     className={`w-full rounded-lg border p-3 text-left transition-colors ${
                       selectedId === skill.id
                         ? 'border-accent bg-accent-muted'
@@ -491,7 +603,6 @@ export function SkillsPanel() {
           )}
         </div>
 
-        {/* Detail */}
         <div className="min-h-0 flex-1 rounded-lg border border-border p-3">
           {selected ? (
             <>
@@ -505,16 +616,6 @@ export function SkillsPanel() {
                 </div>
                 <StatusBadge skill={selected} />
                 <SourceBadge source={selected.source} />
-                {selected.missingOnDisk && (
-                  <button
-                    type="button"
-                    className={btnGhost}
-                    onClick={() => recreate.mutate(selected.id)}
-                    disabled={recreate.isPending}
-                  >
-                    <FileWarning size={12} /> Recreate on disk
-                  </button>
-                )}
                 <button
                   type="button"
                   className={btnGhost}
@@ -535,10 +636,20 @@ export function SkillsPanel() {
                 >
                   <Download size={12} />
                 </button>
+                {selected.missingOnDisk ? (
+                  <button
+                    type="button"
+                    className={btnGhost}
+                    onClick={() => sync.mutate({})}
+                    disabled={sync.isPending}
+                  >
+                    <FolderSync size={12} /> Resync from disk
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => {
-                    if (confirm(`Delete skill “${selected.name}”?`)) remove.mutate(selected.id)
+                    if (confirm(`Remove skill “${selected.name}”?`)) remove.mutate(selected)
                   }}
                   className="rounded p-1 text-fg-muted hover:text-danger"
                 >
@@ -546,7 +657,7 @@ export function SkillsPanel() {
                 </button>
                 <button
                   type="button"
-                  disabled={!dirty || save.isPending}
+                  disabled={!dirty || save.isPending || contentLoading}
                   onClick={() => save.mutate()}
                   className={btnPrimary}
                 >
@@ -554,17 +665,23 @@ export function SkillsPanel() {
                   Save
                 </button>
               </div>
-              <textarea
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                className="h-[min(60vh,520px)] w-full rounded border border-border bg-canvas p-2 font-mono text-xs text-fg"
-                spellCheck={false}
-              />
+              {contentLoading ? (
+                <div className="flex h-[min(60vh,520px)] items-center justify-center">
+                  <Loader2 size={20} className="animate-spin text-fg-muted" />
+                </div>
+              ) : (
+                <textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  className="h-[min(60vh,520px)] w-full rounded border border-border bg-canvas p-2 font-mono text-xs text-fg"
+                  spellCheck={false}
+                />
+              )}
             </>
           ) : (
             <EmptyState
               title="Select a skill"
-              description="Edit SKILL.md body here. Saves write back to disk and re-queue embeddings."
+              description="Edit SKILL.md body here. Content loads from GET /api/skills/content on select."
             />
           )}
         </div>
