@@ -11,12 +11,17 @@ import {
   Pencil,
 } from 'lucide-react'
 import { apiClient } from '@app/lib/api'
-import { fetchHermesSessions } from '@app/lib/hermes-adapters'
+import {
+  deleteHermesSession,
+  fetchHermesSessionSearch,
+  fetchHermesSessions,
+  patchHermesSession,
+} from '@app/lib/hermes-adapters'
 import { useSessionsStore } from '@app/stores/sessions'
 import { useUiStore } from '@app/stores/ui'
 import { formatRelativeTime } from '@app/lib/utils'
 import { groupSessions, mergeSessionSearch } from '@app/lib/panels'
-import type { Profile, SearchResult, Session } from '@hermes/shared'
+import type { Profile, Session } from '@hermes/shared'
 import { EmptyState } from '@app/components/common/EmptyState'
 import { Skeleton } from '@app/components/common/Skeleton'
 
@@ -60,17 +65,18 @@ export function SessionsPanel({ compact }: SessionsPanelProps) {
     retry: false,
   })
 
-  const { data: searchPayload } = useQuery({
+  const { data: searchResults } = useQuery({
     queryKey: ['session-search', query],
-    queryFn: () =>
-      apiClient.get<{ query: string; results: SearchResult[] }>('/api/search', { q: query }),
+    queryFn: () => fetchHermesSessionSearch(query),
     enabled: query.trim().length > 1,
     retry: false,
   })
 
   const patchSession = useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: Partial<Session> }) =>
-      apiClient.patch<Session>(`/api/sessions/${id}`, patch),
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<Session> }) => {
+      const current = sessions.find((s) => s.id === id)
+      return patchHermesSession(id, patch, current)
+    },
     onMutate: async ({ id, patch }) => {
       updateSession(id, patch)
     },
@@ -86,7 +92,7 @@ export function SessionsPanel({ compact }: SessionsPanelProps) {
   })
 
   const deleteSession = useMutation({
-    mutationFn: (id: string) => apiClient.delete(`/api/sessions/${id}`),
+    mutationFn: (id: string) => deleteHermesSession(id),
     onMutate: (id) => {
       removeSession(id)
     },
@@ -104,11 +110,11 @@ export function SessionsPanel({ compact }: SessionsPanelProps) {
     const base = showArchived ? sessions : sessions.filter((s) => !s.archived)
     const { sessions: merged, previews } = mergeSessionSearch(
       base,
-      searchPayload?.results,
+      searchResults,
       query,
     )
     return { list: merged, previews }
-  }, [sessions, showArchived, query, searchPayload])
+  }, [sessions, showArchived, query, searchResults])
 
   const groups = useMemo(() => groupSessions(visible.list), [visible.list])
 
