@@ -78,7 +78,6 @@ Header: `X-Hermes-Session-Token`
 
 - Memory (pgvector) panel
 - Office / Cowork
-- Kanban
 - better-auth user DB / OJ capabilities warm path
 
 Use Hermes-native panels: Sessions, Skills, Cron/Tasks, MCP Connections (Hermes `/api/mcp`), Config/Settings where wired.

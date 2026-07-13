@@ -16947,6 +16947,10 @@ app.include_router(_dashboard_auth_router)
 from hermes_cli.agui_endpoint import router as _agui_router  # noqa: E402
 app.include_router(_agui_router)
 
+# Agent-Marko Kanban panel (GET/POST/DELETE /api/kanban/*).
+from hermes_cli.marko_kanban import router as _marko_kanban_router  # noqa: E402
+app.include_router(_marko_kanban_router)
+
 
 @app.get("/api/marko/boot")
 async def marko_boot(request: Request):

@@ -6,6 +6,7 @@ import { SkillsPanel } from '@app/components/panels/SkillsPanel'
 import { DescopedPanel } from '@app/components/panels/DescopedPanel'
 import { ConnectionsPanel } from '@app/components/panels/ConnectionsPanel'
 import { CronPanel } from '@app/components/panels/CronPanel'
+import { KanbanPanel } from '@app/components/panels/KanbanPanel'
 import { ProfilesPanel } from '@app/components/panels/ProfilesPanel'
 import { SettingsPanel } from '@app/components/panels/SettingsPanel'
 import { panelLabel, resolvePanelRoute } from '@app/lib/labels'
@@ -17,9 +18,6 @@ function MemoryDescoped() {
 function OfficeDescoped() {
   return <DescopedPanel feature="Office / Cowork" />
 }
-function KanbanDescoped() {
-  return <DescopedPanel feature="Kanban" />
-}
 
 const panelComponents: Record<PanelName, ComponentType> = {
   sessions: SessionsPanel,
@@ -30,7 +28,7 @@ const panelComponents: Record<PanelName, ComponentType> = {
   office: OfficeDescoped,
   briefing: OfficeDescoped,
   cron: CronPanel,
-  kanban: KanbanDescoped,
+  kanban: KanbanPanel,
   profiles: ProfilesPanel,
   settings: SettingsPanel,
 }
