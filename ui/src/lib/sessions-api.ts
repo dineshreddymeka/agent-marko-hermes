@@ -1,9 +1,12 @@
-import { apiClient } from '@app/lib/api'
 import type { Session } from '@hermes/shared'
 import { generateId } from '@app/lib/utils'
 import { useSessionsStore } from '@app/stores/sessions'
 import { useUiStore } from '@app/stores/ui'
-import { fetchHermesSessions, hermesSessionToDto } from '@app/lib/hermes-adapters'
+import {
+  createHermesSession,
+  fetchHermesSessions,
+  hermesSessionToDto,
+} from '@app/lib/hermes-adapters'
 
 /**
  * Create a session via Hermes REST so it survives reload.
@@ -13,7 +16,7 @@ export async function createPersistedSession(
   title = 'New chat',
 ): Promise<Session> {
   try {
-    const session = await apiClient.post<Session>('/api/sessions', { title })
+    const session = await createHermesSession(title)
     useSessionsStore.getState().addSession(session)
     useSessionsStore.getState().setActiveSessionId(session.id)
     return session
