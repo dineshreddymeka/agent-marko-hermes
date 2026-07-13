@@ -140,7 +140,7 @@ T = TypeVar("T")
 
 DEFAULT_DB_PATH = get_hermes_home() / "state.db"
 
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 
 # Cap on user-controlled FTS5 query input before regex/sanitizer processing.
 # Search queries do not need to be arbitrarily large, and bounding them keeps
@@ -827,6 +827,31 @@ CREATE TABLE IF NOT EXISTS compression_locks (
     expires_at REAL NOT NULL
 );
 
+-- Skills registry: durable index of SKILL.md packages for dashboard/MCP/cron.
+-- Disk remains source of truth for content; rows are upserted on list/sync and
+-- marked missing_on_disk when the file disappears. ``id`` is a stable UUIDv5
+-- derived from slug so cron/MCP skillIds survive re-sync.
+CREATE TABLE IF NOT EXISTS skills_registry (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    body_md TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'user-folder',
+    path TEXT,
+    content_hash TEXT,
+    triggers_json TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    last_synced_at REAL,
+    missing_on_disk INTEGER NOT NULL DEFAULT 0,
+    usage_count INTEGER NOT NULL DEFAULT 0,
+    success_count INTEGER NOT NULL DEFAULT 0,
+    category TEXT,
+    provenance TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_source ON sessions(source);
 CREATE INDEX IF NOT EXISTS idx_sessions_source_id ON sessions(source, id);
 CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
@@ -835,6 +860,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestam
 CREATE INDEX IF NOT EXISTS idx_compression_locks_expires ON compression_locks(expires_at);
 CREATE INDEX IF NOT EXISTS idx_session_model_usage_session ON session_model_usage(session_id);
 CREATE INDEX IF NOT EXISTS idx_session_model_usage_model ON session_model_usage(model);
+CREATE INDEX IF NOT EXISTS idx_skills_registry_slug ON skills_registry(slug);
+CREATE INDEX IF NOT EXISTS idx_skills_registry_name ON skills_registry(name);
 """
 
 # Indexes that reference columns added in later schema versions must be

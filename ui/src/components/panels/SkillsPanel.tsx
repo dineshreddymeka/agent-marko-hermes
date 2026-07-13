@@ -27,13 +27,16 @@ import { copyToClipboard, formatRelativeTime } from '@app/lib/utils'
 import { skillSourceLabel, skillStatusLabel } from '@app/lib/labels'
 import {
   createHermesSkill,
+  deleteHermesSkill,
   fetchHermesSkillContent,
   fetchHermesSkills,
+  fetchHermesSkillsMeta,
   getHermesSkillHubSources,
   installHermesSkillFromHub,
   isHubInstalledSkill,
   saveHermesSkillContent,
   searchHermesSkillsHub,
+  syncHermesSkills,
   toggleHermesSkill,
   uninstallHermesHubSkill,
   updateHermesSkillsHub,
@@ -113,6 +116,28 @@ export function SkillsPanel() {
     retry: false,
   })
 
+  const { data: meta, refetch: refetchMeta } = useQuery({
+    queryKey: ['skills-meta'],
+    queryFn: fetchHermesSkillsMeta,
+    retry: false,
+  })
+
+  const sync = useMutation({
+    mutationFn: async (_opts?: { quiet?: boolean }) => syncHermesSkills(),
+    onSuccess: (res, vars) => {
+      if (!vars?.quiet) {
+        addToast({
+          title: `Synced ${res.synced} skills`,
+          description: `${res.created} new · ${res.updated} updated · ${res.missing} missing`,
+          variant: 'success',
+        })
+      }
+      void queryClient.invalidateQueries({ queryKey: ['skills'] })
+      void queryClient.invalidateQueries({ queryKey: ['skills-meta'] })
+    },
+    onError: () => addToast({ title: 'Sync failed', variant: 'danger' }),
+  })
+
   const { data: hubSources } = useQuery({
     queryKey: ['skill-hub-sources'],
     queryFn: getHermesSkillHubSources,
@@ -135,14 +160,14 @@ export function SkillsPanel() {
   const enabledCount = skills?.filter((s) => s.enabled).length ?? 0
 
   useEffect(() => {
-    if (!selectedId) {
+    if (!selected) {
       setDraft('')
       setSavedDraft('')
       return
     }
     let cancelled = false
     setContentLoading(true)
-    fetchHermesSkillContent(selectedId)
+    fetchHermesSkillContent(selected.name)
       .then((res) => {
         if (cancelled) return
         setDraft(res.content)
@@ -157,13 +182,13 @@ export function SkillsPanel() {
     return () => {
       cancelled = true
     }
-  }, [selectedId, addToast])
+  }, [selected, addToast])
 
   const save = useMutation({
-    mutationFn: () => saveHermesSkillContent(selectedId!, draft),
-    onSuccess: () => {
+    mutationFn: () => saveHermesSkillContent(selected!.name, draft),
+    onSuccess: (skill) => {
       addToast({ title: 'Skill saved', variant: 'success' })
-      setSavedDraft(draft)
+      setSavedDraft(skill.bodyMd)
       void queryClient.invalidateQueries({ queryKey: ['skills'] })
     },
     onError: () => addToast({ title: 'Save failed', variant: 'danger' }),
@@ -182,27 +207,31 @@ export function SkillsPanel() {
       }
       return createHermesSkill(name, content)
     },
-    onSuccess: () => {
-      const name = newName.trim()
-      addToast({ title: 'Skill created', description: name, variant: 'success' })
+    onSuccess: (skill) => {
+      addToast({ title: 'Skill created', description: skill.name, variant: 'success' })
       setShowCreate(false)
       setNewName('')
       setNewDescription('')
       setNewBody(defaultSkillBody())
-      setSelectedId(name)
+      setSelectedId(skill.id)
       void queryClient.invalidateQueries({ queryKey: ['skills'] })
+      void queryClient.invalidateQueries({ queryKey: ['skills-meta'] })
     },
     onError: () => addToast({ title: 'Create failed', variant: 'danger' }),
   })
 
   const remove = useMutation({
-    mutationFn: (skill: Skill) => uninstallHermesHubSkill(skill.name),
+    mutationFn: (skill: Skill) =>
+      isHubInstalledSkill(skill)
+        ? uninstallHermesHubSkill(skill.name)
+        : deleteHermesSkill(skill.id),
     onSuccess: () => {
-      addToast({ title: 'Skill uninstalled', variant: 'success' })
+      addToast({ title: 'Skill removed', variant: 'success' })
       setSelectedId(null)
       void queryClient.invalidateQueries({ queryKey: ['skills'] })
+      void refetchMeta()
     },
-    onError: () => addToast({ title: 'Uninstall failed', variant: 'danger' }),
+    onError: () => addToast({ title: 'Delete failed', variant: 'danger' }),
   })
 
   const toggleEnabled = useMutation({
@@ -277,7 +306,14 @@ export function SkillsPanel() {
         <div>
           <h2 className="text-sm font-medium text-fg">Skills</h2>
           <p className="mt-0.5 text-xs text-fg-muted">
-            Hermes SKILL.md library — {enabledCount} of {skills?.length ?? 0} enabled.
+            DB-backed SKILL.md registry — {enabledCount} of {skills?.length ?? 0} enabled.
+            {meta?.lastSyncedAt ? (
+              <>
+                {' '}
+                Last sync {formatRelativeTime(meta.lastSyncedAt)}
+                {meta.missing > 0 ? ` · ${meta.missing} missing on disk` : ''}
+              </>
+            ) : null}
           </p>
         </div>
         <div className="flex flex-wrap gap-1">
@@ -299,6 +335,16 @@ export function SkillsPanel() {
             data-testid="skills-create"
           >
             <Plus size={12} /> Create skill
+          </button>
+          <button
+            type="button"
+            className={btnGhost}
+            disabled={sync.isPending}
+            onClick={() => sync.mutate({})}
+            data-testid="skills-sync"
+          >
+            {sync.isPending ? <Loader2 size={12} className="animate-spin" /> : <FolderSync size={12} />}
+            Sync to DB
           </button>
           <button
             type="button"
@@ -525,9 +571,11 @@ export function SkillsPanel() {
                     className={`w-full rounded-lg border p-3 text-left transition-colors ${
                       selectedId === skill.id
                         ? 'border-accent bg-accent-muted'
-                        : skill.source === 'learned'
-                          ? 'border-attention/30 bg-attention/5'
-                          : 'border-border hover:bg-canvas-subtle'
+                        : skill.missingOnDisk
+                          ? 'border-attention/40 bg-attention/5'
+                          : skill.source === 'learned'
+                            ? 'border-attention/30 bg-attention/5'
+                            : 'border-border hover:bg-canvas-subtle'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -543,7 +591,9 @@ export function SkillsPanel() {
                       </div>
                     </div>
                     <p className="mt-2 text-[11px] text-fg-subtle">
-                      Updated {formatRelativeTime(skill.updatedAt)}
+                      {skill.lastSyncedAt
+                        ? `Synced ${formatRelativeTime(skill.lastSyncedAt)}`
+                        : `Updated ${formatRelativeTime(skill.updatedAt)}`}
                       {skill.usageCount > 0 ? ` · ${skill.usageCount} uses` : ''}
                     </p>
                   </button>
@@ -586,17 +636,25 @@ export function SkillsPanel() {
                 >
                   <Download size={12} />
                 </button>
-                {isHubInstalledSkill(selected) && (
+                {selected.missingOnDisk ? (
                   <button
                     type="button"
-                    onClick={() => {
-                      if (confirm(`Uninstall skill “${selected.name}”?`)) remove.mutate(selected)
-                    }}
-                    className="rounded p-1 text-fg-muted hover:text-danger"
+                    className={btnGhost}
+                    onClick={() => sync.mutate({})}
+                    disabled={sync.isPending}
                   >
-                    <Trash2 size={14} />
+                    <FolderSync size={12} /> Resync from disk
                   </button>
-                )}
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm(`Remove skill “${selected.name}”?`)) remove.mutate(selected)
+                  }}
+                  className="rounded p-1 text-fg-muted hover:text-danger"
+                >
+                  <Trash2 size={14} />
+                </button>
                 <button
                   type="button"
                   disabled={!dirty || save.isPending || contentLoading}
