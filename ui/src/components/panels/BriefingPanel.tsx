@@ -174,7 +174,7 @@ export function BriefingPanel() {
     if (!status?.configured) {
       addToast({
         title: 'Microsoft SSO not set up yet',
-        description: `Set ${missingEnvLabel} in the server .env, Azure Web redirect must be ${status?.redirectUri || 'http://127.0.0.1:3001/api/office/callback'}, restart, then retry. Or: bun run office:sso-setup. Open Cowork.exe is not required.`,
+        description: `Set ${missingEnvLabel} in the server .env, Azure Web redirect must be ${status?.redirectUri || 'http://127.0.0.1:9119/api/office/callback'}, restart Hermes, then retry. Open Cowork.exe is not required.`,
         variant: 'attention',
       })
       return
@@ -304,10 +304,9 @@ export function BriefingPanel() {
                 an Entra app registration. Missing:{' '}
                 <code className="font-mono text-fg">{missingEnvLabel}</code>. Redirect URI:{' '}
                 <code className="font-mono text-fg">
-                  {status.redirectUri || 'http://127.0.0.1:3001/api/office/callback'}
+                  {status.redirectUri || 'http://127.0.0.1:9119/api/office/callback'}
                 </code>
-                . Run <code className="font-mono text-fg">bun run office:sso-setup</code>, restart
-                the server, then click Sign in with Microsoft (same Chrome profile → account
+                . Set those env vars, restart Hermes, then click Sign in with Microsoft (same Chrome profile → account
                 picker). This is separate from Open Cowork desktop document jobs.
               </p>
             </div>
@@ -336,7 +335,7 @@ export function BriefingPanel() {
                 : statusError
                   ? 'Could not reach Office status API. Check that the server is running.'
                   : !configured
-                    ? `Microsoft OAuth not configured — set ${missingEnvLabel} in .env and restart (or bun run office:sso-setup).`
+                    ? `Microsoft OAuth not configured — set ${missingEnvLabel} in .env and restart Hermes.`
                     : !connected
                       ? 'No live briefing yet. Sign in with Microsoft to pull today’s calendar from Graph.'
                       : briefingLoading

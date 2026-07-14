@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { isHubInstalledSkill, skillLinkId } from '../src/lib/hermes-skills'
 
 describe('hermes-skills helpers', () => {

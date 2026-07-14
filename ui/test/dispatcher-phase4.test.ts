@@ -6,7 +6,7 @@ import { useAgentStateStore } from '../src/stores/agentState'
 import { useSessionsStore } from '../src/stores/sessions'
 import { useUiStore } from '../src/stores/ui'
 
-// Bun test has no DOM rAF — polyfill so stream batching does not throw
+// happy-dom may lack rAF — polyfill so stream batching does not throw
 if (typeof globalThis.requestAnimationFrame !== 'function') {
   globalThis.requestAnimationFrame = (cb: FrameRequestCallback) => {
     return setTimeout(() => cb(Date.now()), 0) as unknown as number
