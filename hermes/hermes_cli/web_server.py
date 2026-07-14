@@ -16120,7 +16120,7 @@ def mount_spa(application: FastAPI):
             "Headless backend (hermes serve): web UI disabled — use "
             "`hermes dashboard` for the browser UI."
             if _headless
-            else "Frontend not built. Run: cd web && npm run build"
+            else "Frontend not built. Run: npm install && npm run build:ui"
         )
 
         @application.get("/{full_path:path}")
