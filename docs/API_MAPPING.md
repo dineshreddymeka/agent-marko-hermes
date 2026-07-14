@@ -110,6 +110,26 @@ When `features` is missing/null, UI treats flags as **enabled** (fail-open for o
 
 ---
 
+### Adapters ↔ panels (quick index)
+
+| Surface | Frontend adapters / panels | Primary APIs |
+|---------|----------------------------|--------------|
+| Chat / AG-UI | `agui/client.ts`, `dispatcher.ts` | `POST /agui` |
+| A2UI actions | `a2ui/actions.ts` | `/agui`, `/api/cron`, `/api/workspace/file`, `/api/memory/*`, `/api/cowork/tasks` |
+| Sessions | `hermes-adapters.ts`, SessionsPanel | `/api/sessions*` |
+| Profiles | `hermes-adapters.ts`, ProfilesPanel | `/api/profiles*`, `/api/settings` |
+| Workspace | `workspace-api.ts`, WorkspacePanel | `/api/fs/*`, `/api/git/status` |
+| Skills | `hermes-skills.ts`, SkillsPanel | `/api/skills*` |
+| Memory / search | MemoryPanel, SessionsPanel | `/api/memory/entries*`, `/api/search` |
+| Cron | CronPanel, `cron-api.ts` | `/api/cron/jobs*` |
+| MCP / connections | `hermes-adapters.ts`, McpSubPanel | `/api/mcp/servers*` |
+| Kanban | KanbanPanel | `/api/kanban/*` |
+| Settings | `settings-hermes.ts` | `/api/config*`, `/api/env`, `/api/model/*` |
+| Capabilities | `useCapabilities.ts` | `/api/capabilities*` |
+| Approval / office / cowork / debug | panels still call; **not mounted** | see missing table below |
+
+---
+
 ## Path aliases
 
 Marko sometimes uses shorter paths; Hermes maps them:
