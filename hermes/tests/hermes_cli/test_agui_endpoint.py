@@ -143,6 +143,105 @@ def test_agui_creates_session_db_row_before_agent(client):
     fake_agent.run_conversation.assert_called_once()
 
 
+def test_agui_emits_a2ui_custom_from_tool_result(client):
+    token = _session_token()
+    thread_id = "agui-a2ui-thread"
+
+    fake_agent = MagicMock()
+
+    def _run_conversation(*_args, **_kwargs):
+        # Simulate tool callbacks the way AIAgent would.
+        # Grab callbacks from the AIAgent constructor kwargs via side_effect below.
+        return {"final_response": "Form ready"}
+
+    fake_agent.run_conversation.side_effect = _run_conversation
+
+    captured = {}
+
+    def _agent_factory(*_args, **kwargs):
+        captured["kwargs"] = kwargs
+        tool_complete = kwargs.get("tool_complete_callback")
+
+        def run(*_a, **_k):
+            if tool_complete:
+                tool_complete(
+                    "tc-a2ui",
+                    "a2ui_render",
+                    {"surfaceId": "doc-1"},
+                    {
+                        "content": "Need details",
+                        "a2ui": {
+                            "surfaceId": "doc-1",
+                            "component": {
+                                "id": "form",
+                                "type": "hermes:DocumentRequestForm",
+                                "props": {"topic": "Q1"},
+                            },
+                            "complete": True,
+                        },
+                    },
+                )
+            return {"final_response": "Need details"}
+
+        fake_agent.run_conversation.side_effect = run
+        return fake_agent
+
+    with patch("run_agent.AIAgent", side_effect=_agent_factory):
+        with client.stream(
+            "POST",
+            "/agui",
+            headers=_agui_headers(token),
+            json={
+                "threadId": thread_id,
+                "runId": "run-a2ui",
+                "messages": [{"id": "1", "role": "user", "content": "make a deck"}],
+                "forwardedProps": {"profileId": "default"},
+            },
+        ) as resp:
+            assert resp.status_code == 200
+            lines = [line for line in resp.iter_lines() if line.startswith("data:")]
+
+    events = [json.loads(line.removeprefix("data:").strip()) for line in lines]
+    types = [e.get("type") for e in events]
+    assert "RUN_STARTED" in types
+    assert "CUSTOM" in types
+    custom = next(e for e in events if e.get("type") == "CUSTOM")
+    assert custom["name"] == "a2ui.message"
+    assert custom["value"]["surfaceId"] == "doc-1"
+    assert custom["value"]["component"]["type"] == "hermes:DocumentRequestForm"
+    assert "RUN_FINISHED" in types
+
+
+def test_agui_action_response_acks_without_agent(client):
+    token = _session_token()
+    with client.stream(
+        "POST",
+        "/agui",
+        headers=_agui_headers(token),
+        json={
+            "threadId": "action-thread",
+            "runId": "action-run",
+            "messages": [
+                {
+                    "id": "1",
+                    "role": "user",
+                    "content": "A2UI actionResponse surface=surf-1 action=create_cron data={}",
+                }
+            ],
+            "state": {"a2uiAction": {"surfaceId": "surf-1", "action": "create_cron", "data": {}}},
+        },
+    ) as resp:
+        assert resp.status_code == 200
+        lines = [line for line in resp.iter_lines() if line.startswith("data:")]
+    events = [json.loads(line.removeprefix("data:").strip()) for line in lines]
+    types = [e.get("type") for e in events]
+    assert types[0] == "RUN_STARTED"
+    assert "TEXT_MESSAGE_CONTENT" in types
+    assert types[-1] == "RUN_FINISHED"
+    finished = events[-1]
+    assert finished["result"]["a2uiAction"]["action"] == "create_cron"
+
+
 def test_patch_session_returns_marko_dto(client):
     token = _session_token()
     created = client.post(

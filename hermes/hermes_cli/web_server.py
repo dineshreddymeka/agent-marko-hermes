@@ -9897,10 +9897,15 @@ async def rename_session_endpoint(session_id: str, body: SessionRename):
                 raise HTTPException(status_code=400, detail=str(e))
         if body.archived is not None:
             db.set_session_archived(sid, body.archived)
-        result = {"ok": True, "title": db.get_session_title(sid) or ""}
-        if body.archived is not None:
-            result["archived"] = bool(body.archived)
-        return result
+        row = db.get_session(sid) or {"id": sid}
+        from hermes_cli.marko_session import marko_session_dto
+
+        return marko_session_dto(
+            session_id=sid,
+            row=row,
+            title=db.get_session_title(sid) or row.get("title"),
+            profile=body.profile,
+        )
     finally:
         db.close()
 
@@ -10442,6 +10447,51 @@ def _create_cron_job_sync(body: CronJobCreate, profile: str = "default"):
 @app.post("/api/cron/jobs")
 async def create_cron_job(body: CronJobCreate, profile: str = "default"):
     return await _run_cron_dashboard_io(_create_cron_job_sync, body, profile)
+
+
+@app.post("/api/cron")
+async def create_cron_job_marko_alias(request: Request, profile: str = "default"):
+    """Marko A2UI alias for ``POST /api/cron/jobs``.
+
+    Accepts the richer Marko wizard payload (timezone/enabled/workflow) and
+    maps it onto Hermes ``CronJobCreate``.
+    """
+    raw = await request.json()
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=400, detail="Expected JSON object")
+    workflow = raw.get("workflow") if isinstance(raw.get("workflow"), dict) else {}
+    skills = raw.get("skills")
+    if skills is None and isinstance(workflow.get("skillIds"), list):
+        skills = [str(s) for s in workflow["skillIds"] if s is not None]
+    prompt = str(raw.get("prompt") or workflow.get("intent") or "")
+    body = CronJobCreate(
+        prompt=prompt,
+        schedule=str(raw.get("schedule") or "0 9 * * *"),
+        name=str(raw.get("name") or ""),
+        deliver=str(raw.get("deliver") or "local"),
+        skills=skills if isinstance(skills, list) else None,
+        model=raw.get("model"),
+        provider=raw.get("provider"),
+        base_url=raw.get("base_url"),
+        script=raw.get("script"),
+        context_from=raw.get("context_from"),
+        enabled_toolsets=raw.get("enabled_toolsets"),
+        workdir=raw.get("workdir"),
+        no_agent=bool(raw.get("no_agent") or False),
+    )
+    return await _run_cron_dashboard_io(_create_cron_job_sync, body, profile)
+
+
+@app.put("/api/workspace/file")
+async def workspace_file_put_marko_alias(payload: FsWriteText):
+    """Marko A2UI alias for ``POST /api/fs/write-text`` (create markdown drafts)."""
+    # Ensure parent directories exist for draft paths (A2UI create_document).
+    target = _fs_path(payload.path)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"Cannot create parent dir: {exc}")
+    return await fs_write_text(payload)
 
 
 @app.get("/api/cron/delivery-targets")

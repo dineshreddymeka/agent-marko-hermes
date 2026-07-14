@@ -205,6 +205,20 @@ TOOLSETS = {
         "tools": ["todo"],
         "includes": []
     },
+
+    # Agent-Marko AG-UI / A2UI surfaces + client-executed frontend tools.
+    # Frontend tools are gated via check_fn (HERMES_PLATFORM=marko).
+    "marko": {
+        "description": "Marko chat UI: A2UI render + client frontend tools",
+        "tools": [
+            "a2ui_render",
+            "open_file_preview",
+            "switch_panel",
+            "render_chart",
+            "set_theme",
+        ],
+        "includes": [],
+    },
     
     "memory": {
         "description": "Persistent memory across sessions (personal notes + user profile)",
