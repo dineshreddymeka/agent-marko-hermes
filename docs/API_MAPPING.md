@@ -1,7 +1,10 @@
 # Backend ↔ Frontend API Mapping
 
-How **Agent-Marko (Next.js UI)** talks to **Hermes FastAPI**, and how to port
-route changes from another Hermes backend into this repo.
+How **Agent-Marko UI** talks to **Hermes FastAPI**, and how to port route
+changes from another Hermes backend into this repo.
+
+**Last validated:** `npm run validate:api-map` — 79 UI paths, 83 inventory
+entries, 0 missing. Live OpenAPI ~247 paths on Hermes `:9119`.
 
 ## One-hop architecture
 
@@ -11,31 +14,35 @@ Browser (Marko UI)
    │  REST  /api/*
    │  SSE   POST /agui
    ▼
-Dev:  Next.js :5173  ──rewrites──►  Hermes :9119
-Prod: Hermes serves static export + APIs on one origin
+Preferred: Hermes :9119 serves static export + APIs (no proxy)
+Optional HMR: Next :5173 ──rewrites──► Hermes :9119
 ```
 
-- There is **no Bun/middle orchestration layer**.
-- UI never hard-codes `http://127.0.0.1:9119` in browser code.
+- There is **no Bun/middle orchestration layer** and **no Cloudflare tunnel**
+  required for normal preview.
+- Preferred preview: `bash scripts/start-hermes-ui.sh` → **http://127.0.0.1:9119/**
+- UI never hard-codes the Hermes host in browser code (same-origin `/api/*`).
 - Flexibility comes from Hermes **Swagger/OpenAPI** (`/docs`, `/openapi.json`)
   and Marko **`GET /api/capabilities`** (feature flags derived from live paths).
 
-### Dev proxy
+### Optional Next HMR rewrites
 
-| Browser path | Proxied to |
-|--------------|------------|
+Only when iterating on UI with hot reload (`npm run dev:ui`):
+
+| Browser path | Rewritten to |
+|--------------|--------------|
 | `/api/:path*` | `HERMES_URL/api/:path*` (default `http://127.0.0.1:9119`) |
 | `/agui` | `HERMES_URL/agui` |
 
-Configured in `ui/next.config.ts` (`rewrites`). Used by `next dev` only;
-`output: 'export'` production builds ignore rewrites (Hermes mounts the SPA).
+Configured in `ui/next.config.ts`. Ignored for `output: 'export'` builds
+(Hermes mounts the SPA).
 
 ### Auth bootstrap
 
 | Step | Path / header | Notes |
 |------|---------------|-------|
-| Dev token | `GET /api/marko/boot` | Loopback-only; returns `X-Hermes-Session-Token` value |
-| Prod token | `window.__HERMES_SESSION_TOKEN__` | Injected into Hermes-served `index.html` |
+| Preferred (Hermes SPA) | `window.__HERMES_SESSION_TOKEN__` | Injected into Hermes-served `index.html` |
+| Optional HMR / loopback | `GET /api/marko/boot` | Loopback-only; returns session token |
 | All API calls | Header `X-Hermes-Session-Token` | Via `hermesAuthHeaders()` in `ui/src/lib/api.ts` |
 | Public (no token) | `/api/health`, `/api/status`, `/api/marko/boot`, … | See `hermes/hermes_cli/dashboard_auth/public_paths.py` |
 
@@ -329,26 +336,29 @@ comm -13 /tmp/other-paths.txt /tmp/this-paths.txt   # only here
 
 ---
 
-## Smoke checklist (server + proxy)
+## Smoke checklist (one-hop Hermes)
 
 ```bash
-# Hermes (loopback — keeps session-token auth)
-cd hermes && PYTHONPATH=. python3 -m hermes_cli.main dashboard \
-  --host 127.0.0.1 --port 9119 --no-open --skip-build
+# Preferred: build UI into web_dist + start Hermes only (no Next proxy)
+bash scripts/start-hermes-ui.sh
 
-# Marko UI (all interfaces; proxies /api + /agui → :9119)
-npm run dev:ui   # http://0.0.0.0:5173
-
-# Checks
+# Checks (same origin)
 curl -sS http://127.0.0.1:9119/api/health
-curl -sS http://127.0.0.1:5173/api/health          # via Next rewrite
-curl -sS http://127.0.0.1:5173/api/marko/boot       # token
-TOKEN=$(curl -sS http://127.0.0.1:5173/api/marko/boot | jq -r .token)
-curl -sS -H "X-Hermes-Session-Token: $TOKEN" http://127.0.0.1:5173/api/capabilities | jq '.features'
+curl -sS http://127.0.0.1:9119/ | grep -o '__HERMES_SESSION_TOKEN__="[^"]*"'
+TOKEN=$(curl -sS http://127.0.0.1:9119/api/marko/boot | jq -r .token)
+curl -sS -H "X-Hermes-Session-Token: $TOKEN" \
+  http://127.0.0.1:9119/api/capabilities | jq '.features'
+curl -sS -H "X-Hermes-Session-Token: $TOKEN" \
+  http://127.0.0.1:9119/api/fs/default-cwd
+
+# Validate this sheet against UI callers + OpenAPI
+npm run validate:api-map
 ```
 
-Expected: health `200`, boot returns `token`, capabilities `features.agui/sessions/...` true;
+Expected: health `200`, token present, capabilities `features.agui/sessions/workspace/...` true;
 `office` / `cowork` / `approval` / `debug` false until those routes are ported.
+
+Open UI: **http://127.0.0.1:9119/** (Cursor Ports → 9119).
 
 ---
 
