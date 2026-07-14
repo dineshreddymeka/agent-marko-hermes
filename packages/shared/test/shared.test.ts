@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { HERMES_CATALOG_IDS } from '../src/a2ui-catalog'
 import type { HermesCustomEventName } from '../src/agui-events'
 

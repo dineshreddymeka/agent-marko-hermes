@@ -1,7 +1,7 @@
 /**
  * Hermes cron API DTO mapping — pure helpers.
  */
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import {
   filterCronJobsBySkill,
   hermesCronJobToDto,
