@@ -1,4 +1,4 @@
-import { User, Bot } from 'lucide-react'
+import { User, Sparkles } from 'lucide-react'
 import { StreamingMarkdown } from '@app/components/chat/StreamingMarkdown'
 import { ThinkingBlock } from '@app/components/chat/ThinkingBlock'
 import { ToolCallCard } from '@app/components/chat/ToolCallCard'
@@ -46,59 +46,59 @@ export function MessageBubble({ message, animateEnter }: MessageBubbleProps) {
   return (
     <div
       className={cn(
-        'mb-5 flex gap-3',
+        'mb-7 flex gap-3',
         isUser ? 'flex-row-reverse' : 'flex-row',
         animateEnter && 'motion-safe:message-enter',
       )}
     >
       <div
         className={cn(
-          'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border',
+          'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
           isUser
-            ? 'border-user-bubble-border bg-user-bubble text-user-bubble-fg'
-            : 'border-border-muted bg-canvas-subtle text-fg-muted',
+            ? 'border border-user-bubble-border bg-user-bubble text-user-bubble-fg'
+            : 'accent-chip text-white shadow-sm',
         )}
       >
-        {isUser ? <User size={15} /> : <Bot size={15} />}
+        {isUser ? <User size={14} strokeWidth={2} /> : <Sparkles size={14} strokeWidth={2} />}
       </div>
       <div className={cn('min-w-0 flex-1', isUser ? 'flex flex-col items-end' : '')}>
         <div
           className={cn(
-            'mb-1.5 text-[11px] text-fg-muted',
+            'mb-1.5 text-[11px] font-medium tracking-wide text-fg-muted',
             isUser ? 'text-right' : 'text-left',
           )}
           title={formatFullDate(message.createdAt)}
         >
-          {formatTime(message.createdAt)}
+          {isUser ? 'You' : 'Assistant'} · {formatTime(message.createdAt)}
         </div>
         {message.thinking?.trim() && (
-          <div className="w-full max-w-[92%]">
+          <div className={cn('w-full', isUser ? 'max-w-[min(92%,36rem)]' : 'max-w-3xl')}>
             <ThinkingBlock content={message.thinking} streaming={message.streaming} />
           </div>
         )}
         {message.content && (
           <div
             className={cn(
-              'inline-block max-w-[92%] rounded-2xl px-3.5 py-2.5 text-left text-sm',
+              'text-left text-[0.9375rem] leading-relaxed',
               isUser
-                ? 'border border-user-bubble-border bg-user-bubble text-user-bubble-fg shadow-sm'
-                : 'border border-assistant-bubble-border bg-assistant-bubble text-fg shadow-sm',
+                ? 'inline-block max-w-[min(92%,36rem)] rounded-2xl rounded-tr-md border border-user-bubble-border bg-user-bubble px-4 py-2.5 text-user-bubble-fg shadow-sm'
+                : 'w-full max-w-3xl text-fg',
             )}
           >
             {isUser ? (
-              <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+              <p className="whitespace-pre-wrap">{message.content}</p>
             ) : (
               <StreamingMarkdown content={message.content} streaming={message.streaming} />
             )}
           </div>
         )}
         {relatedTools.map((tc) => (
-          <div key={tc.id} className="mt-1 w-full max-w-[92%]">
+          <div key={tc.id} className="mt-2 w-full max-w-3xl">
             <ToolCallCard toolCall={tc} />
           </div>
         ))}
         {a2uiSurfaceId && (
-          <div className="mt-2 w-full max-w-[92%]">
+          <div className="mt-3 w-full max-w-3xl">
             <A2UISurface surfaceId={a2uiSurfaceId} />
           </div>
         )}

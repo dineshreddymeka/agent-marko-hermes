@@ -36,7 +36,7 @@ export function MessageList({ messages }: MessageListProps) {
   const lastIndex = visible.length - 1
 
   return (
-    <div ref={parentRef} className="absolute inset-0 overflow-y-auto px-4 py-4">
+    <div ref={parentRef} className="absolute inset-0 overflow-y-auto px-4 pb-28 pt-6">
       <div
         className="mx-auto max-w-3xl"
         style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}

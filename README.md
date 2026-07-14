@@ -64,6 +64,12 @@ PYTHONPATH=. python3 -m hermes_cli.main dashboard --no-open --skip-build
 
 Marko is served same-origin from Hermes. Chat hits `POST /agui` in-process.
 
+### Direct Next.js ↔ Hermes
+
+- **Dev:** Next on `:5173` rewrites `/api/*` + `/agui` → Hermes `:9119` (browser still uses same-origin paths).
+- **Prod:** static export is mounted by Hermes — no Next Node process; still one-hop Browser → Hermes.
+- **Discovery:** Hermes Swagger at `/docs` + schema `/openapi.json`. Marko reads `/api/capabilities` (OpenAPI-derived `features` map) to know which panels/APIs exist.
+
 ### AG-UI + A2UI
 
 - Hermes streams text, thinking, tools, and `CUSTOM a2ui.message` over `/agui`

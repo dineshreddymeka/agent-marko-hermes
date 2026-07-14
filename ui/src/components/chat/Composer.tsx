@@ -293,10 +293,11 @@ export function Composer({ sessionId }: ComposerProps) {
     Boolean(text.trim() || attachments.length > 0) && !uploading && !creatingSession
 
   return (
-    <div className="relative px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+    <div className="relative px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2">
+      <div className="chat-feather pointer-events-none absolute inset-x-0 -top-16 h-16" />
       {showSlash && (
         <div
-          className="absolute bottom-full left-4 right-4 z-20 mb-1 max-h-56 overflow-y-auto rounded-lg border border-border bg-canvas-subtle py-1 shadow-lg"
+          className="absolute bottom-full left-4 right-4 z-20 mb-2 max-h-56 overflow-y-auto rounded-2xl border border-border bg-canvas-subtle py-1 shadow-lg"
           role="listbox"
           aria-label="Slash commands"
         >
@@ -307,7 +308,7 @@ export function Composer({ sessionId }: ComposerProps) {
               role="option"
               aria-selected={i === slashIndex}
               className={cn(
-                'flex w-full items-center gap-3 px-3 py-1.5 text-left text-sm',
+                'flex w-full items-center gap-3 px-3 py-2 text-left text-sm',
                 i === slashIndex ? 'bg-accent-muted' : 'hover:bg-canvas-inset',
               )}
               onMouseEnter={() => setSlashIndex(i)}
@@ -334,7 +335,7 @@ export function Composer({ sessionId }: ComposerProps) {
           {attachments.map((att) => (
             <span
               key={att.id}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-canvas-inset px-2 py-1 text-xs text-fg"
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-canvas-inset px-2.5 py-1 text-xs text-fg"
             >
               <Paperclip size={12} className="text-fg-muted" />
               <span className="max-w-[10rem] truncate" title={att.path}>
@@ -353,7 +354,7 @@ export function Composer({ sessionId }: ComposerProps) {
         </div>
       )}
 
-      <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-xl border border-border bg-canvas-subtle p-2 shadow-sm">
+      <div className="composer-surface mx-auto flex max-w-3xl items-end gap-2 rounded-3xl border border-border p-2.5 transition-shell">
         <input
           ref={fileInputRef}
           type="file"
@@ -364,7 +365,7 @@ export function Composer({ sessionId }: ComposerProps) {
         <button
           type="button"
           disabled={isRunning || uploading}
-          className="shrink-0 rounded p-2 text-fg-muted hover:bg-canvas-inset hover:text-fg disabled:opacity-40"
+          className="shrink-0 rounded-full p-2.5 text-fg-muted hover:bg-canvas-inset hover:text-fg disabled:opacity-40"
           title="Attach file"
           onClick={() => fileInputRef.current?.click()}
         >
@@ -379,16 +380,16 @@ export function Composer({ sessionId }: ComposerProps) {
             setSlashOpen(next.startsWith('/'))
           }}
           onKeyDown={onKeyDown}
-          placeholder="Message Open Jarvis… (/ for commands)"
+          placeholder="Ask Open Jarvis anything… (/ for commands)"
           rows={1}
           disabled={isRunning}
-          className="max-h-40 min-h-[24px] flex-1 resize-none bg-transparent text-sm text-fg outline-none placeholder:text-fg-muted disabled:opacity-60"
+          className="max-h-40 min-h-[28px] flex-1 resize-none bg-transparent py-2 text-[0.9375rem] leading-relaxed text-fg outline-none placeholder:text-fg-muted disabled:opacity-60"
         />
         {isRunning ? (
           <button
             type="button"
             onClick={cancelRun}
-            className="shrink-0 rounded-md bg-danger/20 p-2 text-danger hover:bg-danger/30"
+            className="shrink-0 rounded-full bg-danger/15 p-2.5 text-danger hover:bg-danger/25"
             title="Stop (Esc)"
           >
             <Square size={18} fill="currentColor" />
@@ -399,8 +400,10 @@ export function Composer({ sessionId }: ComposerProps) {
             onClick={() => void submit()}
             disabled={!canSend}
             className={cn(
-              'shrink-0 rounded-md p-2 transition-colors',
-              canSend ? 'bg-accent text-accent-fg hover:bg-accent-emphasis' : 'text-fg-muted',
+              'shrink-0 rounded-full p-2.5 transition-shell',
+              canSend
+                ? 'accent-chip text-white shadow-sm hover:opacity-95'
+                : 'bg-canvas-inset text-fg-muted',
             )}
             title="Send"
           >
@@ -408,6 +411,9 @@ export function Composer({ sessionId }: ComposerProps) {
           </button>
         )}
       </div>
+      <p className="mx-auto mt-2 max-w-3xl text-center text-[11px] text-fg-subtle">
+        Open Jarvis can use tools and interactive forms in this chat.
+      </p>
     </div>
   )
 }

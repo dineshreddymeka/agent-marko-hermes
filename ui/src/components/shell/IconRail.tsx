@@ -13,6 +13,18 @@ import { Link, useRouterState } from '@tanstack/react-router'
 import type { PanelName } from '@app/stores/ui'
 import { useUiStore } from '@app/stores/ui'
 import { isPanelRouteActive, panelLabel, panelNavLabel } from '@app/lib/labels'
+import { isHermesFeatureEnabled, useCapabilities } from '@app/hooks/useCapabilities'
+
+/** Optional Hermes OpenAPI feature flag that must be true to show this rail item. */
+const featureGate: Partial<Record<PanelName | 'chat', string>> = {
+  office: 'office',
+  cron: 'cron',
+  connections: 'mcp',
+  skills: 'skills',
+  memory: 'memory',
+  workspace: 'workspace',
+  kanban: 'kanban',
+}
 
 /** Primary rail: Chat, Workspace, Office (Briefly), Cowork, MCP, Skills, Settings. */
 const primaryItems: {
@@ -44,13 +56,20 @@ const items = [...primaryItems, ...secondaryItems]
 export function IconRail() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const setActivePanel = useUiStore((s) => s.setActivePanel)
+  const { data: capabilities } = useCapabilities()
+
+  const visibleItems = items.filter(({ id }) => {
+    const gate = featureGate[id]
+    if (!gate) return true
+    return isHermesFeatureEnabled(capabilities, gate)
+  })
 
   return (
     <nav
       aria-label="Main navigation"
       className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-border bg-rail py-2 max-md:hidden"
     >
-      {items.map(({ id, icon: Icon, label, to }) => {
+      {visibleItems.map(({ id, icon: Icon, label, to }) => {
         const active =
           id === 'chat'
             ? pathname === '/' || pathname.startsWith('/session/')
