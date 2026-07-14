@@ -1,5 +1,6 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { AgentWorkingBubble } from '@app/components/chat/AgentWorkingBubble'
 import { MessageBubble } from '@app/components/chat/MessageBubble'
 import type { ChatMessage } from '@app/stores/chat'
 import { useChatStore } from '@app/stores/chat'
@@ -11,7 +12,9 @@ interface MessageListProps {
 export function MessageList({ messages }: MessageListProps) {
   const parentRef = useRef<HTMLDivElement>(null)
   const runStatus = useChatStore((s) => s.runStatus)
+  const runStage = useChatStore((s) => s.runStage)
   const toolCalls = useChatStore((s) => s.toolCalls)
+  const stickToBottom = useRef(true)
 
   // Hide empty assistant placeholders (tool-only turns / empty thinking shells).
   const visible = messages.filter((m) => {
@@ -26,14 +29,51 @@ export function MessageList({ messages }: MessageListProps) {
     return Object.values(toolCalls).some((tc) => tc.messageId === m.id)
   })
 
+  const lastVisible = visible[visible.length - 1]
+  const hasLiveAssistant =
+    Boolean(lastVisible?.streaming) ||
+    Object.values(toolCalls).some((tc) =>
+      ['pending', 'streaming-args', 'executing'].includes(tc.status),
+    )
+  const showWorkingBubble =
+    runStatus === 'running' &&
+    Boolean(runStage) &&
+    runStage?.kind !== 'done' &&
+    runStage?.kind !== 'error' &&
+    !hasLiveAssistant
+
+  const rowCount = visible.length + (showWorkingBubble ? 1 : 0)
+
   const virtualizer = useVirtualizer({
-    count: visible.length,
+    count: rowCount,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 120,
     overscan: 5,
   })
 
-  const lastIndex = visible.length - 1
+  useEffect(() => {
+    const el = parentRef.current
+    if (!el) return
+    const onScroll = () => {
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+      stickToBottom.current = distance < 96
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [])
+
+  useEffect(() => {
+    if (!stickToBottom.current) return
+    if (runStatus !== 'running' && !showWorkingBubble) return
+    const id = requestAnimationFrame(() => {
+      const el = parentRef.current
+      if (!el) return
+      el.scrollTop = el.scrollHeight
+    })
+    return () => cancelAnimationFrame(id)
+  }, [rowCount, runStatus, runStage?.kind, messages, showWorkingBubble])
+
+  const lastMessageIndex = visible.length - 1
 
   return (
     <div ref={parentRef} className="absolute inset-0 overflow-y-auto px-4 pb-28 pt-6">
@@ -42,10 +82,30 @@ export function MessageList({ messages }: MessageListProps) {
         style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}
       >
         {virtualizer.getVirtualItems().map((item) => {
+          const isWorkingRow = showWorkingBubble && item.index === visible.length
+          if (isWorkingRow) {
+            return (
+              <div
+                key="agent-working"
+                data-index={item.index}
+                ref={virtualizer.measureElement}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${item.start}px)`,
+                }}
+              >
+                <AgentWorkingBubble force />
+              </div>
+            )
+          }
+
           const message = visible[item.index]
           if (!message) return null
           const animateEnter =
-            item.index === lastIndex &&
+            item.index === lastMessageIndex &&
             runStatus === 'running' &&
             Boolean(message.streaming)
           return (

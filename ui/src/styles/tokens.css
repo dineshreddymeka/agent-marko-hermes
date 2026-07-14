@@ -160,4 +160,8 @@
   --animate-fade-in-up: fade-in-up var(--duration-fast) var(--ease-spring-out) both;
   --animate-stream-tail: stream-tail var(--duration-fast) ease-out both;
   --animate-soft-rise: soft-rise 420ms var(--ease-shell) both;
+  --animate-message-settle: message-settle 420ms var(--ease-shell) both;
+  --animate-agent-pulse: agent-pulse 1.8s ease-in-out infinite;
+  --animate-agent-sparkle: agent-sparkle 1.6s ease-in-out infinite;
+  --animate-working-dots: working-dots 1.2s steps(1, end) infinite;
 }

@@ -18,7 +18,8 @@ function formatDuration(ms: number): string {
 }
 
 export function ThinkingBlock({ content, streaming }: ThinkingBlockProps) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(Boolean(streaming))
+  const [userToggled, setUserToggled] = useState(false)
   const startedAt = useRef(Date.now())
   const frozenMs = useRef<number | null>(null)
   const now = useNow(250)
@@ -33,21 +34,33 @@ export function ThinkingBlock({ content, streaming }: ThinkingBlockProps) {
       if (frozenMs.current == null) {
         frozenMs.current = Date.now() - startedAt.current
       }
+      if (!userToggled) setOpen(false)
       return
     }
     frozenMs.current = null
     startedAt.current = Date.now()
-  }, [streaming])
+    if (!userToggled) setOpen(true)
+  }, [streaming, userToggled])
 
   if (!content.trim()) return null
 
+  const duration = formatDuration(elapsedMs)
+  const label = streaming ? 'Thinking…' : `Thought for ${duration}`
   const tailPreview = content.replace(/\s+/g, ' ').trim().slice(-72)
 
   return (
-    <div className="mb-2 overflow-hidden rounded-xl border border-border-muted bg-canvas-inset text-sm shadow-sm">
+    <div
+      className={cn(
+        'mb-2 overflow-hidden rounded-xl border border-border-muted bg-canvas-inset text-sm shadow-sm',
+        !streaming && 'motion-safe:agent-status-settle',
+      )}
+    >
       <button
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          setUserToggled(true)
+          setOpen((v) => !v)
+        }}
         className="flex w-full items-center gap-2 px-3 py-2 text-left text-fg-muted hover:bg-canvas-subtle/60 hover:text-fg"
       >
         <Brain
@@ -57,12 +70,16 @@ export function ThinkingBlock({ content, streaming }: ThinkingBlockProps) {
           )}
         />
         <span className={cn('text-xs font-medium', streaming && 'motion-safe:text-shimmer')}>
-          Thinking{streaming ? '…' : ''}
+          {label}
         </span>
-        <span className="text-[11px] tabular-nums text-fg-muted/80">
-          {formatDuration(elapsedMs)}
-        </span>
-        {open ? <ChevronDown size={12} className="ml-auto" /> : <ChevronRight size={12} className="ml-auto" />}
+        {streaming && (
+          <span className="text-[11px] tabular-nums text-fg-muted/80">{duration}</span>
+        )}
+        {open ? (
+          <ChevronDown size={12} className="ml-auto" />
+        ) : (
+          <ChevronRight size={12} className="ml-auto" />
+        )}
       </button>
       {!open && streaming && tailPreview && (
         <div className="thinking-tail-mask border-t border-border-muted/60 px-3 py-1.5 font-mono text-[11px] leading-snug text-fg-muted">
