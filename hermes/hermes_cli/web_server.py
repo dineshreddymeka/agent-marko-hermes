@@ -16163,11 +16163,15 @@ def mount_spa(application: FastAPI):
                 f"</script>"
             )
         if prefix:
-            # Rewrite absolute asset URLs baked into the Vite build so the
+            # Rewrite absolute asset URLs baked into the UI build so the
             # browser fetches them through the same proxy prefix.
+            # Vite used /assets/; Next static export uses /_next/.
             html = html.replace('href="/assets/', f'href="{prefix}/assets/')
             html = html.replace('src="/assets/', f'src="{prefix}/assets/')
+            html = html.replace('href="/_next/', f'href="{prefix}/_next/')
+            html = html.replace('src="/_next/', f'src="{prefix}/_next/')
             html = html.replace('href="/favicon.ico"', f'href="{prefix}/favicon.ico"')
+            html = html.replace('href="/favicon.svg"', f'href="{prefix}/favicon.svg"')
             html = html.replace('href="/fonts/', f'href="{prefix}/fonts/')
             html = html.replace('href="/ds-assets/', f'href="{prefix}/ds-assets/')
             html = html.replace('src="/ds-assets/', f'src="{prefix}/ds-assets/')
@@ -16200,7 +16204,14 @@ def mount_spa(application: FastAPI):
                 css = css.replace(f"url('{asset_dir}", f"url('{prefix}{asset_dir}")
         return Response(content=css, media_type="text/css")
 
-    application.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="assets")
+    # Vite builds use /assets; Next static export uses /_next. Mount whichever exist.
+    # Unknown paths still fall through to FileResponse under WEB_DIST below.
+    _assets_dir = WEB_DIST / "assets"
+    if _assets_dir.is_dir():
+        application.mount("/assets", StaticFiles(directory=_assets_dir), name="assets")
+    _next_dir = WEB_DIST / "_next"
+    if _next_dir.is_dir():
+        application.mount("/_next", StaticFiles(directory=_next_dir), name="next_static")
 
     @application.get("/{full_path:path}")
     async def serve_spa(full_path: str, request: Request):
