@@ -19,7 +19,7 @@ import {
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useUiStore } from '@app/stores/ui'
-import { isImagePath, isMarkdownPath, langFromPath } from '@app/lib/panels'
+import { isImagePath, isMarkdownPath, langFromPath, fileColorFromPath } from '@app/lib/panels'
 import { highlightCode } from '@app/lib/markdown/shiki-client'
 import { uploadWorkspaceFile } from '@app/lib/workspace-upload'
 import {
@@ -372,7 +372,7 @@ export function WorkspacePanel() {
 
           <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
             <div className="mb-1 flex items-center gap-1.5 px-2 py-1 text-[11px] font-medium text-fg-muted">
-              <Folder size={13} className="text-accent" />
+              <Folder size={13} style={{ color: 'var(--color-file-folder)' }} />
               <span className="truncate">{displayRoot}</span>
             </div>
             {rootEntries.length === 0 ? (
@@ -418,7 +418,11 @@ export function WorkspacePanel() {
               <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border-muted px-4 py-2.5">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <FileText size={14} className="shrink-0 text-fg-muted" />
+                    <FileText
+                      size={14}
+                      className="shrink-0"
+                      style={{ color: fileColorFromPath(selectedPath) }}
+                    />
                     <p className="truncate text-sm font-semibold text-fg">{fileName(selectedPath)}</p>
                     {dirty && (
                       <span className="rounded-full bg-attention/15 px-2 py-0.5 text-[10px] font-medium text-attention">
@@ -434,7 +438,15 @@ export function WorkspacePanel() {
                     {!isImagePath(selectedPath) && (
                       <>
                         <span className="mx-1.5 text-fg-muted">·</span>
-                        {langFromPath(selectedPath)}
+                        <span
+                          className="rounded px-1.5 py-0.5 text-[10px] font-medium"
+                          style={{
+                            color: fileColorFromPath(selectedPath),
+                            background: `color-mix(in srgb, ${fileColorFromPath(selectedPath)} 16%, transparent)`,
+                          }}
+                        >
+                          {langFromPath(selectedPath)}
+                        </span>
                       </>
                     )}
                   </p>
@@ -535,7 +547,13 @@ export function WorkspacePanel() {
                 ) : html ? (
                   <div className="m-4 overflow-hidden rounded-lg border border-border-muted bg-canvas-inset">
                     <div className="flex items-center justify-between border-b border-border-muted px-3 py-1.5">
-                      <span className="text-[10px] font-medium uppercase tracking-wide text-fg-subtle">
+                      <span
+                        className="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+                        style={{
+                          color: fileColorFromPath(selectedPath),
+                          background: `color-mix(in srgb, ${fileColorFromPath(selectedPath)} 14%, transparent)`,
+                        }}
+                      >
                         {langFromPath(selectedPath)}
                       </span>
                     </div>
@@ -616,7 +634,7 @@ function TreeBranch({
           ) : (
             <ChevronRight size={12} className="shrink-0 text-fg-muted" />
           )}
-          <Folder size={13} className="shrink-0 text-fg-muted" />
+          <Folder size={13} className="shrink-0" style={{ color: 'var(--color-file-folder)' }} />
           <span className="truncate">{name}</span>
         </button>
       )}
@@ -648,11 +666,15 @@ function TreeBranch({
               className={cn(
                 'flex w-full items-center gap-1.5 rounded-md border-l-2 py-1 pr-2 text-left text-xs transition-colors',
                 selected === entry.path
-                  ? 'border-accent bg-accent-muted text-accent'
+                  ? 'border-accent bg-accent-muted text-fg'
                   : 'border-transparent text-fg hover:bg-canvas-inset',
               )}
             >
-              <File size={13} className="shrink-0 opacity-70" />
+              <File
+                size={13}
+                className="shrink-0"
+                style={{ color: fileColorFromPath(entry.path) }}
+              />
               <span className="min-w-0 flex-1 truncate">{entry.name}</span>
               {dirtySet.has(entry.path) && (
                 <span

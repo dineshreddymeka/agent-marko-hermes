@@ -152,6 +152,73 @@ export function langFromPath(path: string): string {
   return map[ext] ?? 'text'
 }
 
+/** Semantic file-kind color token for icons / chips (theme-aware CSS var). */
+export type FileColorKind =
+  | 'code'
+  | 'script'
+  | 'data'
+  | 'doc'
+  | 'style'
+  | 'markup'
+  | 'image'
+  | 'config'
+  | 'folder'
+  | 'default'
+
+export function fileKindFromPath(path: string, isDir = false): FileColorKind {
+  if (isDir) return 'folder'
+  if (isImagePath(path)) return 'image'
+  const ext = path.split('.').pop()?.toLowerCase() ?? ''
+  if (['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'py', 'go', 'rs', 'java', 'kt', 'swift'].includes(ext)) {
+    return 'code'
+  }
+  if (['sh', 'bash', 'zsh', 'ps1', 'bat', 'cmd'].includes(ext)) return 'script'
+  if (['json', 'jsonc', 'csv', 'tsv', 'sql', 'sqlite', 'parquet'].includes(ext)) return 'data'
+  if (['md', 'mdx', 'txt', 'rst', 'adoc', 'pdf', 'doc', 'docx'].includes(ext)) return 'doc'
+  if (['css', 'scss', 'sass', 'less', 'styl'].includes(ext)) return 'style'
+  if (['html', 'htm', 'xml', 'svg', 'vue', 'svelte'].includes(ext)) return 'markup'
+  if (
+    ['yml', 'yaml', 'toml', 'ini', 'env', 'conf', 'config', 'lock', 'gitignore', 'dockerignore'].includes(
+      ext,
+    ) ||
+    path.endsWith('Dockerfile') ||
+    path.endsWith('Makefile')
+  ) {
+    return 'config'
+  }
+  return 'default'
+}
+
+/** CSS color value for a file kind (uses design tokens). */
+export function fileColorVar(kind: FileColorKind): string {
+  switch (kind) {
+    case 'code':
+      return 'var(--color-file-code)'
+    case 'script':
+      return 'var(--color-file-script)'
+    case 'data':
+      return 'var(--color-file-data)'
+    case 'doc':
+      return 'var(--color-file-doc)'
+    case 'style':
+      return 'var(--color-file-style)'
+    case 'markup':
+      return 'var(--color-file-markup)'
+    case 'image':
+      return 'var(--color-file-image)'
+    case 'config':
+      return 'var(--color-file-config)'
+    case 'folder':
+      return 'var(--color-file-folder)'
+    default:
+      return 'var(--color-fg-muted)'
+  }
+}
+
+export function fileColorFromPath(path: string, isDir = false): string {
+  return fileColorVar(fileKindFromPath(path, isDir))
+}
+
 export function isImagePath(path: string): boolean {
   return /\.(png|jpe?g|gif|webp|svg|ico)$/i.test(path)
 }

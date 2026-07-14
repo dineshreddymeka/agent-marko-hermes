@@ -69,6 +69,37 @@
     background: var(--hermes-gradient-accent);
   }
 
+  .smart-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-radius: 9999px;
+    padding: 0.125rem 0.5rem;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  .smart-chip-info {
+    color: var(--color-info);
+    background: color-mix(in srgb, var(--color-info) 16%, transparent);
+  }
+
+  .smart-chip-success {
+    color: var(--color-success);
+    background: color-mix(in srgb, var(--color-success) 16%, transparent);
+  }
+
+  .smart-chip-attention {
+    color: var(--color-attention);
+    background: color-mix(in srgb, var(--color-attention) 16%, transparent);
+  }
+
+  .smart-chip-danger {
+    color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 16%, transparent);
+  }
+
   .transition-shell {
     transition-property: width, opacity, transform, background-color, border-color, box-shadow;
     transition-duration: var(--duration-shell);
