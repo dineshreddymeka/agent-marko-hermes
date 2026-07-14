@@ -5,11 +5,16 @@ import {
   ChevronRight,
   Download,
   File,
+  FileText,
   Folder,
+  FolderOpen,
   GitBranch,
+  Loader2,
   Pencil,
   Save,
+  Search,
   Upload,
+  X,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -27,10 +32,38 @@ import {
 import type { WorkspaceTreeResponse } from '@hermes/shared'
 import { EmptyState } from '@app/components/common/EmptyState'
 import { Skeleton } from '@app/components/common/Skeleton'
+import { cn } from '@app/lib/utils'
+
+const btnGhost =
+  'inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-canvas-subtle disabled:opacity-50'
+const btnPrimary =
+  'inline-flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50'
 
 function workspaceDisplayName(cwd: string): string {
   const parts = cwd.split(/[/\\]/).filter(Boolean)
   return parts[parts.length - 1] || cwd
+}
+
+function relativePath(root: string, full: string): string {
+  const normRoot = root.replace(/[/\\]+$/, '')
+  if (full === normRoot) return '.'
+  if (full.startsWith(normRoot + '/') || full.startsWith(normRoot + '\\')) {
+    return full.slice(normRoot.length + 1)
+  }
+  return full
+}
+
+function fileName(path: string): string {
+  return path.split(/[/\\]/).pop() || path
+}
+
+function filterEntries(
+  entries: WorkspaceTreeResponse['entries'],
+  q: string,
+): WorkspaceTreeResponse['entries'] {
+  const needle = q.trim().toLowerCase()
+  if (!needle) return entries
+  return entries.filter((e) => e.name.toLowerCase().includes(needle))
 }
 
 export function WorkspacePanel() {
@@ -41,12 +74,14 @@ export function WorkspacePanel() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [children, setChildren] = useState<Record<string, WorkspaceTreeResponse['entries']>>({})
+  const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [html, setHtml] = useState<string | null>(null)
+  const [highlighting, setHighlighting] = useState(false)
+  const [treeQuery, setTreeQuery] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Chat frontend tool `open_file_preview` → select path here
   useEffect(() => {
     if (!workspacePreviewPath) return
     setSelectedPath(workspacePreviewPath)
@@ -98,14 +133,24 @@ export function WorkspacePanel() {
   }, [root, rootPath])
 
   const loadDir = async (path: string) => {
-    const data = await fetchWorkspaceTree(path)
-    setChildren((current) => ({ ...current, [path]: data.entries }))
+    setLoadingDirs((s) => new Set(s).add(path))
+    try {
+      const data = await fetchWorkspaceTree(path)
+      setChildren((current) => ({ ...current, [path]: data.entries }))
+    } finally {
+      setLoadingDirs((s) => {
+        const next = new Set(s)
+        next.delete(path)
+        return next
+      })
+    }
   }
 
   const {
     data: fileContent,
     isLoading: fileLoading,
     isError: fileError,
+    refetch: refetchFile,
   } = useQuery({
     queryKey: ['workspace-file', selectedPath],
     queryFn: () => fetchWorkspaceFile(selectedPath!),
@@ -120,8 +165,20 @@ export function WorkspacePanel() {
     if (!fileContent?.content || !selectedPath) return
     if (isMarkdownPath(selectedPath) || isImagePath(selectedPath)) return
     const lang = langFromPath(selectedPath)
-    void highlightCode(fileContent.content, lang).then(setHtml)
+    let cancelled = false
+    setHighlighting(true)
+    void highlightCode(fileContent.content, lang).then((out) => {
+      if (!cancelled) {
+        setHtml(out)
+        setHighlighting(false)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
   }, [fileContent, selectedPath])
+
+  const dirty = editing && draft !== (fileContent?.content ?? '')
 
   const save = useMutation({
     mutationFn: () => writeWorkspaceFile(selectedPath!, draft),
@@ -141,10 +198,12 @@ export function WorkspacePanel() {
 
   const upload = useMutation({
     mutationFn: (file: File) => uploadWorkspaceFile(file),
-    onSuccess: () => {
+    onSuccess: (res) => {
       addToast({ title: 'Upload complete', variant: 'success' })
       void refetchTree()
       void queryClient.invalidateQueries({ queryKey: ['workspace-git', rootPath] })
+      const path = (res as { path?: string } | undefined)?.path
+      if (typeof path === 'string' && path) setSelectedPath(path)
     },
     onError: (err) =>
       addToast({
@@ -156,19 +215,22 @@ export function WorkspacePanel() {
 
   const download = () => {
     if (!selectedPath || !fileContent) return
-    const blob =
-      fileContent.contentBase64
-        ? new Blob([Uint8Array.from(atob(fileContent.contentBase64), (c) => c.charCodeAt(0))])
-        : new Blob([fileContent.content ?? ''], { type: 'text/plain' })
+    const blob = fileContent.contentBase64
+      ? new Blob([Uint8Array.from(atob(fileContent.contentBase64), (c) => c.charCodeAt(0))])
+      : new Blob([fileContent.content ?? ''], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = selectedPath.split(/[/\\]/).pop() ?? 'file'
+    a.download = fileName(selectedPath)
     a.click()
     URL.revokeObjectURL(url)
   }
 
   const dirtySet = useMemo(() => new Set(git?.files ?? []), [git])
+  const rootEntries = useMemo(
+    () => filterEntries(children[rootPath ?? ''] ?? [], treeQuery),
+    [children, rootPath, treeQuery],
+  )
 
   const isLoading = cwdLoading || (!!rootPath && treeLoading)
   const isError = cwdError || treeError || !rootPath || !root
@@ -176,9 +238,12 @@ export function WorkspacePanel() {
 
   if (isLoading) {
     return (
-      <div className="space-y-2 p-4">
-        <Skeleton className="h-6 w-full" />
-        <Skeleton className="h-6 w-3/4" />
+      <div className="flex h-full flex-col gap-3 p-5">
+        <Skeleton className="h-8 w-64" />
+        <div className="flex min-h-0 flex-1 gap-3">
+          <Skeleton className="h-full w-72" />
+          <Skeleton className="h-full flex-1" />
+        </div>
       </div>
     )
   }
@@ -186,6 +251,7 @@ export function WorkspacePanel() {
   if (isError || !root || !rootPath) {
     return (
       <EmptyState
+        icon={<FolderOpen size={28} strokeWidth={1.5} />}
         title="Workspace unavailable"
         description={
           error instanceof Error
@@ -199,7 +265,7 @@ export function WorkspacePanel() {
               void refetchCwd()
               void refetchTree()
             }}
-            className="text-xs text-accent"
+            className={btnPrimary}
           >
             Retry
           </button>
@@ -208,33 +274,62 @@ export function WorkspacePanel() {
     )
   }
 
+  const displayRoot = workspaceDisplayName(rootPath)
+  const branch = cwdInfo.branch?.trim() || undefined
+
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2 text-xs">
-        <span
-          className="max-w-[min(100%,28rem)] truncate font-mono text-[10px] text-fg-muted"
-          title={rootPath}
-        >
-          {rootPath}
-        </span>
+    <div className="flex h-full min-h-0 flex-col bg-canvas">
+      {/* Context strip */}
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border-muted px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <div className="accent-chip flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white shadow-sm">
+              <FolderOpen size={15} strokeWidth={2} />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-fg" title={rootPath}>
+                {displayRoot}
+              </p>
+              <p className="truncate font-mono text-[11px] text-fg-subtle" title={rootPath}>
+                {rootPath}
+              </p>
+            </div>
+          </div>
+        </div>
+
         {git?.isRepo ? (
           <span
-            className={`inline-flex items-center gap-1 rounded px-2 py-0.5 ${
-              git.dirty ? 'bg-attention/15 text-attention' : 'bg-success/15 text-success'
-            }`}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium',
+              git.dirty
+                ? 'bg-[color-mix(in_srgb,var(--color-attention)_16%,transparent)] text-attention'
+                : 'bg-[color-mix(in_srgb,var(--color-success)_16%,transparent)] text-success',
+            )}
+            title={branch ? `Branch ${branch}` : undefined}
           >
+            <span
+              className={cn('h-1.5 w-1.5 rounded-full', git.dirty ? 'bg-attention' : 'bg-success')}
+            />
             <GitBranch size={12} />
+            {branch ? <span className="max-w-[8rem] truncate">{branch}</span> : null}
+            <span className="text-fg-muted">·</span>
             {git.dirty ? `${git.files.length} changed` : 'Clean'}
           </span>
         ) : (
-          <span className="text-fg-muted">Not a git repo</span>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-canvas-subtle px-2.5 py-1 text-[11px] text-fg-muted">
+            <GitBranch size={12} />
+            Not a git repo
+          </span>
         )}
+
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="ml-auto inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-fg hover:bg-canvas-subtle"
+          disabled={upload.isPending}
+          className={btnGhost}
         >
-          <Upload size={12} /> Upload
+          {upload.isPending ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+          Upload
         </button>
         <input
           ref={fileInputRef}
@@ -248,110 +343,227 @@ export function WorkspacePanel() {
         />
       </div>
 
+      {/* Master–detail */}
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <div className="w-full shrink-0 overflow-y-auto border-b border-border p-2 md:w-64 md:border-b-0 md:border-r">
-          <TreeBranch
-            path={rootPath}
-            name={workspaceDisplayName(rootPath)}
-            entries={children[rootPath] ?? []}
-            expanded={expanded}
-            childrenMap={children}
-            dirtySet={dirtySet}
-            selected={selectedPath}
-            onToggle={async (path) => {
-              const next = new Set(expanded)
-              if (next.has(path)) next.delete(path)
-              else {
-                next.add(path)
-                if (!children[path]) await loadDir(path)
-              }
-              setExpanded(next)
-            }}
-            onSelect={setSelectedPath}
-          />
-        </div>
+        {/* Tree */}
+        <aside className="flex max-h-[42vh] w-full shrink-0 flex-col border-b border-border-muted bg-canvas-subtle/40 md:max-h-none md:w-80 md:border-b-0 md:border-r">
+          <div className="shrink-0 space-y-2 border-b border-border-muted px-3 py-2.5">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-fg-subtle">
+                Files
+              </p>
+              <span className="tabular-nums text-[10px] text-fg-muted">
+                {(children[rootPath] ?? []).length}
+              </span>
+            </div>
+            <div className="relative">
+              <Search
+                size={13}
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle"
+              />
+              <input
+                value={treeQuery}
+                onChange={(e) => setTreeQuery(e.target.value)}
+                placeholder="Filter files…"
+                className="w-full rounded-md border border-border bg-canvas py-1.5 pl-8 pr-2 text-xs text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none"
+              />
+            </div>
+          </div>
 
-        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
+            <div className="mb-1 flex items-center gap-1.5 px-2 py-1 text-[11px] font-medium text-fg-muted">
+              <Folder size={13} className="text-accent" />
+              <span className="truncate">{displayRoot}</span>
+            </div>
+            {rootEntries.length === 0 ? (
+              <p className="px-3 py-6 text-center text-xs text-fg-muted">
+                {treeQuery.trim() ? 'No matching files' : 'This folder is empty'}
+              </p>
+            ) : (
+              <TreeBranch
+                path={rootPath}
+                name={displayRoot}
+                entries={rootEntries}
+                expanded={expanded}
+                childrenMap={children}
+                loadingDirs={loadingDirs}
+                dirtySet={dirtySet}
+                selected={selectedPath}
+                filter={treeQuery}
+                onToggle={async (path) => {
+                  const next = new Set(expanded)
+                  if (next.has(path)) next.delete(path)
+                  else {
+                    next.add(path)
+                    if (!children[path]) await loadDir(path)
+                  }
+                  setExpanded(next)
+                }}
+                onSelect={(path) => {
+                  if (editing && dirty) {
+                    const ok = window.confirm('Discard unsaved changes?')
+                    if (!ok) return
+                  }
+                  setSelectedPath(path)
+                }}
+              />
+            )}
+          </div>
+        </aside>
+
+        {/* Preview */}
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
           {selectedPath ? (
             <>
-              <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-                <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{selectedPath}</span>
+              <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border-muted px-4 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <FileText size={14} className="shrink-0 text-fg-muted" />
+                    <p className="truncate text-sm font-semibold text-fg">{fileName(selectedPath)}</p>
+                    {dirty && (
+                      <span className="rounded-full bg-attention/15 px-2 py-0.5 text-[10px] font-medium text-attention">
+                        Unsaved
+                      </span>
+                    )}
+                  </div>
+                  <p
+                    className="mt-0.5 truncate font-mono text-[11px] text-fg-subtle"
+                    title={selectedPath}
+                  >
+                    {relativePath(rootPath, selectedPath)}
+                    {!isImagePath(selectedPath) && (
+                      <>
+                        <span className="mx-1.5 text-fg-muted">·</span>
+                        {langFromPath(selectedPath)}
+                      </>
+                    )}
+                  </p>
+                </div>
+
                 {!isImagePath(selectedPath) && (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditing((value) => !value)
-                        setDraft(fileContent?.content ?? '')
-                      }}
-                      className="rounded p-1 text-fg-muted hover:bg-canvas-subtle"
-                      title="Edit"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    {editing && (
+                    {editing ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditing(false)
+                            setDraft(fileContent?.content ?? '')
+                          }}
+                          className={btnGhost}
+                        >
+                          <X size={13} /> Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => save.mutate()}
+                          disabled={save.isPending || !dirty}
+                          className={btnPrimary}
+                        >
+                          {save.isPending ? (
+                            <Loader2 size={13} className="animate-spin" />
+                          ) : (
+                            <Save size={13} />
+                          )}
+                          Save
+                        </button>
+                      </>
+                    ) : (
                       <button
                         type="button"
-                        onClick={() => save.mutate()}
-                        disabled={save.isPending}
-                        className="inline-flex items-center gap-1 rounded bg-accent px-2 py-1 text-xs text-white"
+                        onClick={() => {
+                          setEditing(true)
+                          setDraft(fileContent?.content ?? '')
+                        }}
+                        className={btnGhost}
                       >
-                        <Save size={12} /> Save
+                        <Pencil size={13} /> Edit
                       </button>
                     )}
                   </>
                 )}
-                <button
-                  type="button"
-                  onClick={download}
-                  className="rounded p-1 text-fg-muted hover:bg-canvas-subtle"
-                  title="Download"
-                >
-                  <Download size={14} />
+                <button type="button" onClick={download} className={btnGhost} title="Download">
+                  <Download size={13} /> Download
                 </button>
               </div>
-              <div className="min-h-0 flex-1 overflow-auto p-4">
+
+              <div className="min-h-0 flex-1 overflow-auto">
                 {fileLoading ? (
-                  <Skeleton className="h-40 w-full" />
+                  <div className="space-y-2 p-5">
+                    <Skeleton className="h-4 w-2/3" />
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-5/6" />
+                    <Skeleton className="h-40 w-full" />
+                  </div>
                 ) : fileError ? (
-                  <EmptyState title="Could not open file" description="Check permissions or path." />
+                  <EmptyState
+                    icon={<File size={24} strokeWidth={1.5} />}
+                    title="Could not open file"
+                    description="Check permissions or path."
+                    action={
+                      <button type="button" onClick={() => void refetchFile()} className={btnGhost}>
+                        Retry
+                      </button>
+                    }
+                  />
                 ) : editing ? (
                   <textarea
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
-                    className="h-full min-h-[240px] w-full rounded border border-border bg-canvas p-3 font-mono text-xs text-fg"
+                    spellCheck={false}
+                    className="h-full min-h-full w-full resize-none border-0 bg-canvas-inset p-4 font-mono text-[13px] leading-relaxed text-fg focus:outline-none"
                   />
                 ) : isImagePath(selectedPath) && fileContent?.contentBase64 ? (
-                  <img
-                    src={`data:${fileContent.mime};base64,${fileContent.contentBase64}`}
-                    alt={selectedPath}
-                    className="max-h-full max-w-full"
-                  />
+                  <div className="flex h-full items-center justify-center bg-[radial-gradient(ellipse_at_center,var(--color-canvas-subtle),var(--color-canvas))] p-6">
+                    <img
+                      src={`data:${fileContent.mime};base64,${fileContent.contentBase64}`}
+                      alt={fileName(selectedPath)}
+                      className="max-h-full max-w-full rounded-lg border border-border-muted shadow-sm"
+                    />
+                  </div>
                 ) : selectedPath && isMarkdownPath(selectedPath) ? (
-                  <div className="prose prose-invert max-w-none text-sm">
+                  <div className="markdown-body mx-auto max-w-3xl px-6 py-5 text-sm">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
                       {fileContent?.content ?? ''}
                     </ReactMarkdown>
                   </div>
+                ) : highlighting && !html ? (
+                  <div className="space-y-2 p-5">
+                    <Skeleton className="h-4 w-1/2" />
+                    <Skeleton className="h-48 w-full" />
+                  </div>
                 ) : html ? (
-                  <div
-                    className="overflow-auto text-xs [&_pre]:m-0 [&_pre]:bg-transparent"
-                    dangerouslySetInnerHTML={{ __html: html }}
-                  />
+                  <div className="m-4 overflow-hidden rounded-lg border border-border-muted bg-canvas-inset">
+                    <div className="flex items-center justify-between border-b border-border-muted px-3 py-1.5">
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-fg-subtle">
+                        {langFromPath(selectedPath)}
+                      </span>
+                    </div>
+                    <div
+                      className="overflow-auto p-3 text-[13px] leading-relaxed [&_pre]:m-0 [&_pre]:bg-transparent [&_code]:font-mono"
+                      dangerouslySetInnerHTML={{ __html: html }}
+                    />
+                  </div>
                 ) : (
-                  <pre className="whitespace-pre-wrap font-mono text-xs text-fg">
-                    {fileContent?.content ?? 'Empty file'}
+                  <pre className="m-4 overflow-auto rounded-lg border border-border-muted bg-canvas-inset p-4 font-mono text-[13px] leading-relaxed text-fg whitespace-pre-wrap">
+                    {fileContent?.content || 'Empty file'}
                   </pre>
                 )}
               </div>
             </>
           ) : (
             <EmptyState
+              icon={
+                <div className="accent-chip mb-1 flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-sm">
+                  <FolderOpen size={22} strokeWidth={1.75} />
+                </div>
+              }
               title="Select a file"
-              description="Choose a file from the tree to preview or edit."
+              description="Browse the tree to preview, edit, or download workspace files."
+              className="h-full"
             />
           )}
-        </div>
+        </section>
       </div>
     </div>
   )
@@ -363,8 +575,10 @@ function TreeBranch({
   entries,
   expanded,
   childrenMap,
+  loadingDirs,
   dirtySet,
   selected,
+  filter,
   onToggle,
   onSelect,
   depth = 0,
@@ -374,29 +588,40 @@ function TreeBranch({
   entries: WorkspaceTreeResponse['entries']
   expanded: Set<string>
   childrenMap: Record<string, WorkspaceTreeResponse['entries']>
+  loadingDirs: Set<string>
   dirtySet: Set<string>
   selected: string | null
+  filter: string
   onToggle: (path: string) => void
   onSelect: (path: string) => void
   depth?: number
 }) {
   const isOpen = expanded.has(path)
+  const visible = filterEntries(entries, depth === 0 ? '' : filter)
+
   return (
     <div>
       {depth > 0 && (
         <button
           type="button"
           onClick={() => onToggle(path)}
-          style={{ paddingLeft: depth * 12 }}
-          className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-xs text-fg hover:bg-canvas-inset"
+          aria-expanded={isOpen}
+          style={{ paddingLeft: 8 + depth * 12 }}
+          className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-xs text-fg transition-colors hover:bg-canvas-inset"
         >
-          {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          <Folder size={12} />
+          {loadingDirs.has(path) ? (
+            <Loader2 size={12} className="shrink-0 animate-spin text-fg-muted" />
+          ) : isOpen ? (
+            <ChevronDown size={12} className="shrink-0 text-fg-muted" />
+          ) : (
+            <ChevronRight size={12} className="shrink-0 text-fg-muted" />
+          )}
+          <Folder size={13} className="shrink-0 text-fg-muted" />
           <span className="truncate">{name}</span>
         </button>
       )}
       {(depth === 0 || isOpen) &&
-        entries.map((entry) =>
+        visible.map((entry) =>
           entry.type === 'dir' ? (
             <TreeBranch
               key={entry.path}
@@ -405,8 +630,10 @@ function TreeBranch({
               entries={childrenMap[entry.path] ?? []}
               expanded={expanded}
               childrenMap={childrenMap}
+              loadingDirs={loadingDirs}
               dirtySet={dirtySet}
               selected={selected}
+              filter={filter}
               onToggle={onToggle}
               onSelect={onSelect}
               depth={depth + 1}
@@ -416,16 +643,22 @@ function TreeBranch({
               key={entry.path}
               type="button"
               onClick={() => onSelect(entry.path)}
-              style={{ paddingLeft: (depth + 1) * 12 }}
-              className={`flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-xs hover:bg-canvas-inset ${
-                selected === entry.path ? 'bg-accent-muted text-accent' : 'text-fg'
-              }`}
+              aria-selected={selected === entry.path}
+              style={{ paddingLeft: 8 + (depth + 1) * 12 }}
+              className={cn(
+                'flex w-full items-center gap-1.5 rounded-md border-l-2 py-1 pr-2 text-left text-xs transition-colors',
+                selected === entry.path
+                  ? 'border-accent bg-accent-muted text-accent'
+                  : 'border-transparent text-fg hover:bg-canvas-inset',
+              )}
             >
-              <span className="w-3" />
-              <File size={12} />
-              <span className="truncate">{entry.name}</span>
+              <File size={13} className="shrink-0 opacity-70" />
+              <span className="min-w-0 flex-1 truncate">{entry.name}</span>
               {dirtySet.has(entry.path) && (
-                <span className="ml-auto text-[10px] text-attention">M</span>
+                <span
+                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-attention"
+                  title="Modified"
+                />
               )}
             </button>
           ),
