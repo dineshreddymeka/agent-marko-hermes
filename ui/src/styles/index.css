@@ -18,7 +18,8 @@
     margin: 0;
     font-family: var(--font-sans);
     font-size: var(--text-base);
-    line-height: 1.5;
+    line-height: 1.55;
+    letter-spacing: -0.011em;
     color: var(--color-fg);
     background: var(--color-canvas);
     -webkit-font-smoothing: antialiased;
@@ -37,8 +38,39 @@
 }
 
 @layer utilities {
+  .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+
+  .chat-feather {
+    background: var(--hermes-feather);
+    pointer-events: none;
+  }
+
+  .composer-surface {
+    background: var(--hermes-composer-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: var(--hermes-shadow);
+  }
+
+  .header-surface {
+    background: var(--hermes-header-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .welcome-glow {
+    background: var(--hermes-welcome-glow);
+  }
+
+  .accent-chip {
+    background: var(--hermes-gradient-accent);
+  }
+
   .transition-shell {
-    transition-property: width, opacity, transform, background-color, border-color;
+    transition-property: width, opacity, transform, background-color, border-color, box-shadow;
     transition-duration: var(--duration-shell);
     transition-timing-function: var(--ease-shell);
   }
@@ -78,12 +110,12 @@
     animation: var(--animate-sweep);
   }
 
-  .stream-tail-reveal {
-    animation: var(--animate-stream-tail);
+  .message-enter {
+    animation: var(--animate-soft-rise);
   }
 
-  .message-enter {
-    animation: var(--animate-fade-in-up);
+  .stream-tail-reveal {
+    animation: var(--animate-stream-tail);
   }
 
   .thinking-tail-mask {
@@ -109,8 +141,8 @@
 
 @layer components {
   .markdown-body {
-    font-size: 0.875rem;
-    line-height: 1.6;
+    font-size: 0.9375rem;
+    line-height: 1.65;
     color: var(--color-fg);
     word-wrap: break-word;
   }
@@ -227,6 +259,17 @@
   }
 }
 
+@keyframes soft-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes stream-tail {
   from {
     opacity: 0.35;
@@ -247,6 +290,7 @@
     --animate-sweep: none;
     --animate-fade-in-up: none;
     --animate-stream-tail: none;
+    --animate-soft-rise: none;
   }
 
   .streaming-caret {

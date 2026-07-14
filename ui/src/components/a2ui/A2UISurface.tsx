@@ -30,10 +30,10 @@ export function A2UISurface({ surfaceId }: A2UISurfaceProps) {
   return (
     <div
       className={cn(
-        'a2ui-artifact my-2 overflow-hidden rounded-xl border border-border-muted bg-canvas-subtle',
+        'a2ui-artifact my-2 overflow-hidden rounded-2xl border border-border bg-canvas-subtle/90',
       )}
     >
-      <div className="flex items-center gap-2 border-b border-border-muted bg-canvas-inset/50 px-3 py-2">
+      <div className="flex items-center gap-2 border-b border-border-muted bg-canvas-inset/40 px-3 py-2.5">
         <Sparkles size={14} className="text-accent" />
         <span className="text-xs font-medium text-fg">Interactive form</span>
         {!surface.complete && (

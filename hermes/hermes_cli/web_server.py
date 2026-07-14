@@ -17335,6 +17335,10 @@ app.include_router(_marko_memory_router)
 from hermes_cli.marko_kanban import router as _marko_kanban_router  # noqa: E402
 app.include_router(_marko_kanban_router)
 
+# Agent-Marko capabilities (OpenAPI-derived feature map for Next.js).
+from hermes_cli.marko_capabilities import router as _marko_capabilities_router  # noqa: E402
+app.include_router(_marko_capabilities_router)
+
 
 @app.get("/api/marko/boot")
 async def marko_boot(request: Request):
@@ -17352,6 +17356,9 @@ async def marko_boot(request: Request):
         "authRequired": gated,
         "backend": "hermes",
         "agui": "/agui",
+        "docs": "/docs",
+        "openapi": "/openapi.json",
+        "capabilities": "/api/capabilities",
     }
 
 

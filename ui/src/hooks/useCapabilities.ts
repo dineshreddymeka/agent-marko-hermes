@@ -9,12 +9,24 @@ export async function fetchCapabilities(): Promise<CapabilitiesResponse | null> 
   try {
     return await apiClient.get<CapabilitiesResponse>('/api/capabilities')
   } catch (e) {
-    // Hermes-direct build: OJ capabilities endpoint is absent — treat as unavailable.
-    if (e instanceof ApiError && (e.status === 404 || e.status === 401 || e.status === 501)) {
+    if (e instanceof ApiError && (e.status === 404 || e.status === 501)) {
+      return null
+    }
+    // Auth hiccups during boot: treat as unavailable rather than crashing panels.
+    if (e instanceof ApiError && e.status === 401) {
       return null
     }
     return null
   }
+}
+
+/** True when OpenAPI says a Marko feature surface is present on Hermes. */
+export function isHermesFeatureEnabled(
+  data: CapabilitiesResponse | null | undefined,
+  feature: string,
+): boolean {
+  if (!data?.features) return true
+  return Boolean(data.features[feature])
 }
 
 /** Reconnect MCP + rebuild manifest + probe agent LLM (staging/ops warm path). */
