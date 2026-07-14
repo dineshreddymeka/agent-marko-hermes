@@ -8,14 +8,15 @@
     "ui",
     "packages/*"
   ],
-  "scripts": {
+    "scripts": {
     "dev:ui": "npm run dev -w app",
     "build:ui": "npm run build -w app",
     "dev": "node scripts/dev.mjs",
     "build": "npm run build:ui",
     "test": "npm run test -w app",
     "test:ui": "npm run test -w app",
-    "smoke:agui": "python3 scripts/smoke_agui.py"
+    "smoke:agui": "python3 scripts/smoke_agui.py",
+    "validate:api-map": "python3 scripts/validate_api_mapping.py --hermes http://127.0.0.1:9119"
   },
   "devDependencies": {
     "typescript": "^6.0.3"
