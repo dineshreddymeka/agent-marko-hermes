@@ -62,5 +62,9 @@ curl -g -sS -o /dev/null --connect-timeout 1 'http://[::1]:5173/' 2>/dev/null \
 wait_http "http://127.0.0.1:5173/api/health" "Next→Hermes proxy"
 
 echo
-echo "Open: http://127.0.0.1:5173/  (use Cursor Ports panel if browser is on your laptop)"
-echo "API:  http://127.0.0.1:9119/docs"
+echo "Open (inside VM / Cursor Ports): http://127.0.0.1:5173/"
+echo "API docs:                        http://127.0.0.1:9119/docs"
+echo
+echo "If your laptop browser shows Error -102 on 127.0.0.1, that address is the"
+echo "cloud VM — use Cursor Ports, or start a public tunnel:"
+echo "  bash scripts/start-ui-tunnel.sh"
