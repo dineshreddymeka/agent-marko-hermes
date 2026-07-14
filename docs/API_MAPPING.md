@@ -198,9 +198,9 @@ Status legend:
 | GET | `/api/mcp/servers` | wired | McpSubPanel | web_server |
 | POST | `/api/mcp/servers` | wired | McpSubPanel | web_server |
 | PUT | `/api/mcp/servers` | wired | bulk tool allowlists | web_server |
-| DELETE | `/api/mcp/servers/{name}` | wired | McpSubPanel | web_server |
-| PUT | `/api/mcp/servers/{name}/enabled` | wired | McpSubPanel | web_server |
-| POST | `/api/mcp/servers/{name}/test` | wired | McpSubPanel | web_server |
+| DELETE | `/api/mcp/servers/{id}` | wired | McpSubPanel | web_server |
+| PUT | `/api/mcp/servers/{id}/enabled` | wired | McpSubPanel | web_server |
+| POST | `/api/mcp/servers/{id}/test` | wired | McpSubPanel | web_server |
 | GET | `/api/mcp/servers/{id}/events` | wired | McpSubPanel | web_server |
 | GET | `/api/mcp` | alias | CronPanel | → servers |
 | POST | `/api/mcp/{id}/test` | alias | CronPanel | → servers test |
@@ -286,12 +286,22 @@ Status legend:
 
 ### Not mounted on Hermes yet (UI still calls — integrate from other system)
 
-| Family | Paths | UI |
-|--------|-------|----|
-| Approval | `/api/approval/config`, `/api/approval/resolve` | Settings, ApprovalCard, agui client |
-| Cowork | `/api/cowork/setup`, `/api/cowork/tasks`, abort, … | CoworkWorkRequests, Connections, A2UI |
-| Office | `/api/office/config`, `status`, `briefing`, `sso`, `disconnect` | BriefingPanel, login |
-| Debug | `/api/debug/health`, `/api/debug/runs`, `/api/debug/runs/{id}/events` | DebugReplayPanel |
+| Method | Path | Status | Frontend | Notes |
+|--------|------|--------|----------|-------|
+| GET/PUT | `/api/approval/config` | **missing** | Settings, agui client | Port from other backend |
+| POST | `/api/approval/resolve` | **missing** | ApprovalCard | Port from other backend |
+| GET/PUT | `/api/cowork/setup` | **missing** | Cowork / Connections | Port from other backend |
+| GET/POST | `/api/cowork/tasks` | **missing** | CoworkWorkRequests / A2UI | Port from other backend |
+| GET | `/api/cowork/tasks/{id}` | **missing** | CoworkWorkRequests | Port from other backend |
+| POST | `/api/cowork/tasks/{id}/abort` | **missing** | CoworkWorkRequests | Port from other backend |
+| GET | `/api/office/config` | **missing** | BriefingPanel / login | Port from other backend |
+| GET | `/api/office/status` | **missing** | BriefingPanel | Port from other backend |
+| GET | `/api/office/briefing` | **missing** | BriefingPanel | Port from other backend |
+| GET | `/api/office/sso` | **missing** | BriefingPanel / login | OAuth redirect |
+| POST | `/api/office/disconnect` | **missing** | BriefingPanel | Port from other backend |
+| GET | `/api/debug/health` | **missing** | DebugReplayPanel | Port from other backend |
+| GET | `/api/debug/runs` | **missing** | DebugReplayPanel | Port from other backend |
+| GET | `/api/debug/runs/{id}/events` | **missing** | DebugReplayPanel | Port from other backend |
 
 These families should appear in the other backend’s OpenAPI; copy handlers here,
 then set capability prefixes so the rail/panels light up automatically.
@@ -339,3 +349,108 @@ curl -sS -H "X-Hermes-Session-Token: $TOKEN" http://127.0.0.1:5173/api/capabilit
 
 Expected: health `200`, boot returns `token`, capabilities `features.agui/sessions/...` true;
 `office` / `cowork` / `approval` / `debug` false until those routes are ported.
+
+---
+
+## Validate this file (no missing APIs)
+
+Canonical inventory below is checked against every `ui/src` `/api/*` + `/agui` call:
+
+```bash
+npm run validate:api-map
+# or
+python3 scripts/validate_api_mapping.py --hermes http://127.0.0.1:9119
+```
+
+- **Fails** if any UI path is absent from the inventory (or inventory path missing from prose tables).
+- **Warns** if inventory paths are stale / unexpected OpenAPI gaps (known-missing families exempt).
+
+When you add a frontend API call, add a row to the tables **and** a `METHOD /path` line in the inventory.
+
+<!-- BEGIN_API_INVENTORY -->
+```
+POST /agui
+GET/PUT /api/approval/config
+POST /api/approval/resolve
+GET /api/auth/get-session
+GET /api/auth/me
+GET /api/auth/providers
+POST /api/auth/sign-in/email
+POST /api/auth/sign-in/ldap
+GET /api/auth/sign-in/social
+GET/POST /api/capabilities
+POST /api/capabilities/warm
+GET/PUT /api/config
+GET /api/config/defaults
+GET /api/config/schema
+GET/PUT /api/cowork/setup
+GET/POST /api/cowork/tasks
+GET /api/cowork/tasks/{id}
+POST /api/cowork/tasks/{id}/abort
+POST /api/cron
+GET/POST /api/cron/jobs
+DELETE/PUT /api/cron/jobs/{id}
+POST /api/cron/jobs/{id}/pause
+POST /api/cron/jobs/{id}/resume
+GET /api/cron/jobs/{id}/runs
+POST /api/cron/jobs/{id}/trigger
+POST /api/cron/wizard/preview
+GET /api/debug/health
+GET /api/debug/runs
+GET /api/debug/runs/{id}/events
+GET/PUT /api/env
+GET /api/fs/default-cwd
+GET /api/fs/list
+GET /api/fs/read-data-url
+GET /api/fs/read-text
+POST /api/fs/write-text
+GET /api/git/status
+GET /api/health
+GET /api/kanban/status-counts
+GET/POST /api/kanban/tasks
+DELETE /api/kanban/tasks/{id}
+POST /api/kanban/tasks/{id}/move
+GET /api/marko/boot
+GET /api/mcp
+GET/POST/PUT /api/mcp/servers
+DELETE /api/mcp/servers/{id}
+PUT /api/mcp/servers/{id}/enabled
+GET /api/mcp/servers/{id}/events
+POST /api/mcp/servers/{id}/test
+POST /api/mcp/{id}/test
+GET/POST /api/memory/entries
+DELETE/PATCH /api/memory/entries/{id}
+GET /api/model/auxiliary
+GET /api/model/info
+POST /api/model/set
+GET /api/office/briefing
+GET /api/office/config
+POST /api/office/disconnect
+GET /api/office/sso
+GET /api/office/status
+GET/POST /api/profiles
+DELETE/PATCH /api/profiles/{id}
+POST /api/profiles/{id}/default
+GET /api/search
+GET/POST /api/sessions
+GET /api/sessions/search
+DELETE/PATCH /api/sessions/{id}
+GET /api/sessions/{id}/live
+GET /api/sessions/{id}/messages
+GET /api/settings
+GET/POST /api/skills
+GET/PUT /api/skills/content
+POST /api/skills/hub/install
+GET /api/skills/hub/search
+GET /api/skills/hub/sources
+POST /api/skills/hub/uninstall
+POST /api/skills/hub/update
+GET /api/skills/meta
+POST /api/skills/sync
+PUT /api/skills/toggle
+DELETE /api/skills/{id}
+PUT /api/workspace/file
+GET /docs
+GET /openapi.json
+```
+<!-- END_API_INVENTORY -->
