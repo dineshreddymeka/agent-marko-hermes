@@ -29,29 +29,29 @@ agent-marko-hermes/
   scripts/          # build/dev/smoke helpers
 ```
 
-## Quick start (dev)
+## Quick start (dev) — one-hop, no proxy
 
-### 1. Hermes backend
-
-```bash
-cd hermes
-# install deps per upstream Hermes README / pyproject.toml
-PYTHONPATH=. python3 -m hermes_cli.main dashboard --no-open --skip-build
-```
-
-Dashboard API: `http://127.0.0.1:9119`
-
-### 2. Marko UI
+Browser talks **directly to Hermes** (UI + `/api/*` + `/agui`). No Next rewrite
+proxy and no Cloudflare tunnel.
 
 ```bash
-# from repo root
-npm install
-npm run dev:ui
+# from repo root — builds Marko into hermes/hermes_cli/web_dist and starts Hermes
+bash scripts/start-hermes-ui.sh
 ```
 
-Open `http://127.0.0.1:5173`. Next.js rewrites `/api` and `/agui` → `:9119`.
-On boot the UI calls `GET /api/marko/boot` (loopback-only) to obtain
-`X-Hermes-Session-Token` (same token Hermes injects into production `index.html`).
+Open **http://127.0.0.1:9119/** (Cursor → Ports → forward **9119**).
+
+Swagger: http://127.0.0.1:9119/docs
+
+### Optional: Next.js HMR only (local iteration)
+
+```bash
+# Terminal A — Hermes API/UI backend
+cd hermes && PYTHONPATH=. python3 -m hermes_cli.main dashboard --no-open --skip-build
+
+# Terminal B — Next HMR (rewrites /api+/agui → :9119). Not required for preview.
+npm run dev:ui   # http://127.0.0.1:5173
+```
 
 ## Production build
 
@@ -66,8 +66,8 @@ Marko is served same-origin from Hermes. Chat hits `POST /agui` in-process.
 
 ### Direct Next.js ↔ Hermes
 
-- **Dev:** Next on `:5173` rewrites `/api/*` + `/agui` → Hermes `:9119` (browser still uses same-origin paths).
-- **Prod:** static export is mounted by Hermes — no Next Node process; still one-hop Browser → Hermes.
+- **Preferred preview:** Hermes alone on `:9119` (static export + APIs). **No proxy.**
+- **Optional HMR:** Next on `:5173` rewrites `/api/*` + `/agui` → Hermes `:9119`.
 - **Discovery:** Hermes Swagger at `/docs` + schema `/openapi.json`. Marko reads `/api/capabilities` (OpenAPI-derived `features` map) to know which panels/APIs exist.
 - **Full route map:** see [`docs/API_MAPPING.md`](docs/API_MAPPING.md) for every frontend↔backend path, aliases, missing routes to port from another Hermes, and an OpenAPI diff checklist.
 - **Validate the map:** `npm run validate:api-map` fails if any UI `/api/*` or `/agui` call is missing from the MD inventory.
