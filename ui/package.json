@@ -4,9 +4,9 @@
   "version": "0.2.0",
   "type": "module",
   "scripts": {
-    "dev": "next dev -H 0.0.0.0 -p 5173",
+    "dev": "next dev -H :: -p 5173",
     "build": "next build && node scripts/copy-web-dist.mjs",
-    "start": "next start -H 0.0.0.0 -p 5173",
+    "start": "next start -H :: -p 5173",
     "lint": "eslint src app",
     "test": "vitest run",
     "test:watch": "vitest"
