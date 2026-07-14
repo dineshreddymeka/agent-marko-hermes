@@ -80,7 +80,12 @@ export function StreamingMarkdown({ content, streaming }: StreamingMarkdownProps
   }, [content, streaming])
 
   return (
-    <div className={cn('markdown-body max-w-none text-sm', streaming && 'streaming-cursor')}>
+    <div
+      className={cn(
+        'markdown-body max-w-none text-sm',
+        streaming && 'streaming-cursor streaming-response',
+      )}
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}

@@ -781,6 +781,7 @@ CREATE TABLE IF NOT EXISTS messages (
     codex_reasoning_items TEXT,
     codex_message_items TEXT,
     platform_message_id TEXT,
+    a2ui TEXT,
     observed INTEGER DEFAULT 0,
     active INTEGER NOT NULL DEFAULT 1,
     compacted INTEGER NOT NULL DEFAULT 0
@@ -4066,6 +4067,12 @@ class SessionDB:
                 except (json.JSONDecodeError, TypeError):
                     logger.warning("Failed to deserialize tool_calls in get_messages, falling back to []")
                     msg["tool_calls"] = []
+            if msg.get("a2ui"):
+                try:
+                    msg["a2ui"] = json.loads(msg["a2ui"])
+                except (json.JSONDecodeError, TypeError):
+                    # Keep raw string — adapter can still ignore invalid payloads.
+                    pass
             result.append(msg)
         return result
 

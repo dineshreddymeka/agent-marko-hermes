@@ -1,4 +1,4 @@
-/** Ensure Hermes session token is available before API/AG-UI calls (Vite dev). */
+/** Ensure Hermes session token is available before API/AG-UI calls (Next/Hermes). */
 export async function ensureHermesSessionToken(): Promise<void> {
   if (typeof window === 'undefined') return
   if (window.__HERMES_SESSION_TOKEN__) return

@@ -1,7 +1,8 @@
 """In-process AG-UI SSE endpoint for Agent-Marko UI.
 
 Browser → Hermes FastAPI only (no Bun middle layer). Streams AG-UI events
-while driving ``AIAgent.run_conversation`` with ``stream_callback``.
+while driving ``AIAgent.run_conversation``. Emits text, thinking, tools,
+and ``CUSTOM a2ui.message`` surfaces for full Marko AG-UI + A2UI support.
 """
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import queue
 import threading
 import uuid
@@ -17,6 +19,8 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+
+from hermes_cli.agui_a2ui import extract_a2ui_messages, tool_result_content_for_client
 
 _log = logging.getLogger("hermes.agui")
 
@@ -79,7 +83,6 @@ def _history_for_agent(messages: List[AguiMessage]) -> List[Dict[str, Any]]:
     """Convert prior AG-UI messages (excluding the latest user turn) to Hermes history."""
     if not messages:
         return []
-    # Drop trailing user message — run_conversation adds it.
     trimmed = list(messages)
     while trimmed and trimmed[-1].role == "user":
         trimmed.pop()
@@ -109,6 +112,41 @@ def _profile_from_input(input_data: RunAgentInput) -> Optional[str]:
     return None
 
 
+def _a2ui_action_from_state(state: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(state, dict):
+        return None
+    action = state.get("a2uiAction")
+    return action if isinstance(action, dict) else None
+
+
+def _persist_a2ui(db: Any, session_id: str, a2ui_payload: Dict[str, Any]) -> None:
+    """Attach A2UI JSON to the latest assistant message in the session."""
+    try:
+        rows = db.get_messages(session_id, limit=40)
+    except Exception:
+        return
+    target_id = None
+    for row in reversed(rows):
+        if (row.get("role") or "").lower() == "assistant":
+            target_id = row.get("id")
+            break
+    if target_id is None:
+        return
+    try:
+        encoded = json.dumps(a2ui_payload, ensure_ascii=False)
+    except Exception:
+        return
+    try:
+        with db._lock:
+            db._conn.execute(
+                "UPDATE messages SET a2ui = ? WHERE id = ?",
+                (encoded, target_id),
+            )
+            db._conn.commit()
+    except Exception:
+        _log.debug("Failed to persist a2ui on message %s", target_id, exc_info=True)
+
+
 def _run_agent_sync(
     *,
     input_data: RunAgentInput,
@@ -121,6 +159,7 @@ def _run_agent_sync(
     user_text = _latest_user_text(input_data.messages)
     history = _history_for_agent(input_data.messages)
     profile = _profile_from_input(input_data)
+    a2ui_action = _a2ui_action_from_state(input_data.state)
 
     def emit(event: Dict[str, Any]) -> None:
         if cancel.is_set():
@@ -128,6 +167,44 @@ def _run_agent_sync(
         out_q.put(event)
 
     emit({"type": "RUN_STARTED", "threadId": thread_id, "runId": run_id})
+
+    # A2UI actionResponse follow-up: acknowledge without a full agent turn when
+    # the user just submitted a form (create_cron / save / etc.).
+    if a2ui_action and not user_text.startswith("A2UI actionResponse"):
+        # Fall through to normal agent if somehow malformed.
+        pass
+    if a2ui_action and user_text.startswith("A2UI actionResponse"):
+        action_name = str(a2ui_action.get("action") or "action")
+        surface_id = str(a2ui_action.get("surfaceId") or "")
+        emit(
+            {
+                "type": "TEXT_MESSAGE_START",
+                "messageId": message_id,
+                "role": "assistant",
+            }
+        )
+        ack = f"Got it — `{action_name}`"
+        if surface_id:
+            ack += f" on surface `{surface_id}`"
+        ack += " is done."
+        emit(
+            {
+                "type": "TEXT_MESSAGE_CONTENT",
+                "messageId": message_id,
+                "delta": ack,
+            }
+        )
+        emit({"type": "TEXT_MESSAGE_END", "messageId": message_id})
+        emit(
+            {
+                "type": "RUN_FINISHED",
+                "threadId": thread_id,
+                "runId": run_id,
+                "result": {"final_response": ack, "a2uiAction": a2ui_action},
+            }
+        )
+        out_q.put(None)
+        return
 
     if not user_text:
         emit(
@@ -143,7 +220,10 @@ def _run_agent_sync(
         return
 
     started_text = False
+    started_thinking = False
+    thinking_message_id = str(uuid.uuid4())
     open_tool_calls: Dict[str, str] = {}
+    emitted_a2ui: List[Dict[str, Any]] = []
 
     def ensure_text_start() -> None:
         nonlocal started_text
@@ -157,6 +237,31 @@ def _run_agent_sync(
             )
             started_text = True
 
+    def ensure_thinking_start() -> None:
+        nonlocal started_thinking
+        if not started_thinking:
+            emit({"type": "THINKING_START"})
+            emit(
+                {
+                    "type": "THINKING_TEXT_MESSAGE_START",
+                    "messageId": thinking_message_id,
+                    "role": "assistant",
+                }
+            )
+            started_thinking = True
+
+    def finish_thinking() -> None:
+        nonlocal started_thinking
+        if started_thinking:
+            emit(
+                {
+                    "type": "THINKING_TEXT_MESSAGE_END",
+                    "messageId": thinking_message_id,
+                }
+            )
+            emit({"type": "THINKING_END"})
+            started_thinking = False
+
     def on_stream_delta(delta: Optional[str]) -> None:
         if cancel.is_set():
             return
@@ -164,6 +269,7 @@ def _run_agent_sync(
             return
         if not isinstance(delta, str) or not delta:
             return
+        finish_thinking()
         ensure_text_start()
         emit(
             {
@@ -173,9 +279,26 @@ def _run_agent_sync(
             }
         )
 
+    def on_reasoning_delta(delta: Optional[str]) -> None:
+        if cancel.is_set():
+            return
+        if not isinstance(delta, str) or not delta:
+            return
+        ensure_thinking_start()
+        emit(
+            {
+                "type": "THINKING_TEXT_MESSAGE_CONTENT",
+                "messageId": thinking_message_id,
+                "delta": delta,
+            }
+        )
+
     def on_tool_start(tool_id: str, name: str, args: Any) -> None:
         if cancel.is_set():
             return
+        finish_thinking()
+        # Ensure an assistant message exists so the UI can attach A2UI surfaces.
+        ensure_text_start()
         open_tool_calls[tool_id] = name
         emit(
             {
@@ -201,13 +324,7 @@ def _run_agent_sync(
     def on_tool_complete(tool_id: str, name: str, args: Any, result: Any) -> None:
         if cancel.is_set():
             return
-        try:
-            if isinstance(result, str):
-                content = result
-            else:
-                content = json.dumps(result, ensure_ascii=False, default=str)
-        except Exception:
-            content = str(result)
+        content = tool_result_content_for_client(result)
         emit(
             {
                 "type": "TOOL_CALL_RESULT",
@@ -217,11 +334,29 @@ def _run_agent_sync(
                 "role": "tool",
             }
         )
+        for a2ui_payload in extract_a2ui_messages(result):
+            emit(
+                {
+                    "type": "CUSTOM",
+                    "name": "a2ui.message",
+                    "value": a2ui_payload,
+                }
+            )
+            emitted_a2ui.append(a2ui_payload)
         open_tool_calls.pop(tool_id, None)
 
+    # Marko platform gates frontend tools via check_fn.
+    prev_platform = os.environ.get("HERMES_PLATFORM")
+    os.environ["HERMES_PLATFORM"] = "marko"
     try:
         from hermes_cli.marko_session import ensure_marko_session, open_session_db
         from run_agent import AIAgent
+
+        # Ensure marko tool module is imported (self-registers).
+        try:
+            import tools.a2ui_render_tool  # noqa: F401
+        except Exception:
+            _log.debug("Could not import a2ui_render_tool", exc_info=True)
 
         db = open_session_db(profile)
         try:
@@ -233,6 +368,7 @@ def _run_agent_sync(
                 platform="marko",
                 quiet_mode=True,
                 stream_delta_callback=on_stream_delta,
+                reasoning_callback=on_reasoning_delta,
                 tool_start_callback=on_tool_start,
                 tool_complete_callback=on_tool_complete,
             )
@@ -252,8 +388,6 @@ def _run_agent_sync(
             result = agent.run_conversation(
                 user_text,
                 conversation_history=history or None,
-                # Streaming already wired via AIAgent(stream_delta_callback=...).
-                # Do not also pass stream_callback — that double-emits deltas.
             )
 
             if cancel.is_set():
@@ -267,6 +401,8 @@ def _run_agent_sync(
                     }
                 )
                 return
+
+            finish_thinking()
 
             final = (result or {}).get("final_response") or ""
             if final and not started_text:
@@ -282,12 +418,20 @@ def _run_agent_sync(
             if started_text:
                 emit({"type": "TEXT_MESSAGE_END", "messageId": message_id})
 
+            for payload in emitted_a2ui:
+                _persist_a2ui(db, thread_id, payload)
+
             emit(
                 {
                     "type": "RUN_FINISHED",
                     "threadId": thread_id,
                     "runId": run_id,
-                    "result": {"final_response": final} if final else None,
+                    "result": {
+                        "final_response": final,
+                        "a2uiSurfaces": [p.get("surfaceId") for p in emitted_a2ui],
+                    }
+                    if final or emitted_a2ui
+                    else None,
                 }
             )
         finally:
@@ -297,6 +441,7 @@ def _run_agent_sync(
                 pass
     except Exception as exc:
         _log.exception("AG-UI run failed")
+        finish_thinking()
         if started_text:
             emit({"type": "TEXT_MESSAGE_END", "messageId": message_id})
         emit(
@@ -309,6 +454,10 @@ def _run_agent_sync(
             }
         )
     finally:
+        if prev_platform is None:
+            os.environ.pop("HERMES_PLATFORM", None)
+        else:
+            os.environ["HERMES_PLATFORM"] = prev_platform
         out_q.put(None)
 
 
@@ -342,7 +491,6 @@ async def _event_stream(
             yield _sse(event)
     finally:
         cancel.set()
-        # Drain briefly so the worker can exit cleanly.
         try:
             await asyncio.to_thread(worker.join, 2.0)
         except Exception:

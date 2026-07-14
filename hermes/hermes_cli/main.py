@@ -4620,46 +4620,32 @@ def _gateway_prompt(prompt_text: str, default: str = "", timeout: float = 300.0)
     return default
 
 
-def _web_ui_build_needed(web_dir: Path) -> bool:
-    """Return True if the web UI dist is missing or stale.
-
-    Mirrors the staleness logic used by ``_tui_build_needed()`` for the TUI.
-    The dashboard source lives under ``web/``, but the Vite build
-    still outputs to ``hermes_cli/web_dist/`` (per vite.config.ts
-    outDir: "../hermes_cli/web_dist"), NOT to ``web/dist/``, so Python
-    packaging can continue serving the same static asset directory. Uses the
-    Vite manifest as the sentinel because it is written last and therefore
-    has the newest mtime of any build output.
-    """
-    project_root = web_dir.parent.parent if web_dir.parent.name == "apps" else web_dir.parent
-    dist_dir = project_root / "hermes_cli" / "web_dist"
-    sentinel = dist_dir / ".vite" / "manifest.json"
-    if not sentinel.exists():
-        sentinel = dist_dir / "index.html"
+def _web_ui_build_needed(ui_src_dir: Path, dist_dir: Path) -> bool:
+    """Return True if Marko Next.js dist is missing or stale vs ``ui/`` sources."""
+    sentinel = dist_dir / "index.html"
     if not sentinel.exists():
         return True
     dist_mtime = sentinel.stat().st_mtime
-    skip = frozenset({"node_modules", "dist"})
-    for dirpath, dirnames, filenames in os.walk(web_dir, topdown=True):
+    skip = frozenset({"node_modules", "dist", ".next", "out"})
+    for dirpath, dirnames, filenames in os.walk(ui_src_dir, topdown=True):
         dirnames[:] = [d for d in dirnames if d not in skip]
         for fn in filenames:
-            if fn.endswith((".ts", ".tsx", ".js", ".jsx", ".css", ".html", ".vue")):
+            if fn.endswith((".ts", ".tsx", ".js", ".jsx", ".css", ".html", ".mjs", ".json")):
                 if os.path.getmtime(os.path.join(dirpath, fn)) > dist_mtime:
                     return True
     for meta in (
         "package.json",
-        "yarn.lock",
-        "pnpm-lock.yaml",
-        "vite.config.ts",
-        "vite.config.js",
+        "package-lock.json",
+        "next.config.ts",
+        "next.config.js",
+        "next.config.mjs",
     ):
-        mp = web_dir / meta
+        mp = ui_src_dir / meta
         if mp.exists() and mp.stat().st_mtime > dist_mtime:
             return True
-    # Workspace root lockfile (single package-lock.json covers all workspaces).
-    root_lock = project_root / "package-lock.json"
-    if root_lock.exists() and root_lock.stat().st_mtime > dist_mtime:
-        return True
+        root_meta = ui_src_dir.parent / meta
+        if root_meta.exists() and root_meta.stat().st_mtime > dist_mtime:
+            return True
     return False
 
 
@@ -4868,33 +4854,67 @@ def _run_npm_install_deterministic(
     )
 
 
-def _build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
-    """Build the web UI frontend if npm is available.
+def _marko_ui_layout(hermes_root: Path) -> tuple[Path, Path, Path] | None:
+    """Resolve Agent-Marko UI paths relative to the Hermes package root.
+
+    Expected layout (this monorepo)::
+
+        <repo>/
+          package.json          # npm run build:ui
+          ui/                   # Next.js Marko app
+          hermes/               # Hermes package (hermes_root)
+            hermes_cli/web_dist # build output
+
+    Returns ``(monorepo_root, ui_dir, dist_dir)`` or ``None`` when the
+    sibling Marko ``ui/`` tree is absent (standalone Hermes checkout).
+    """
+    monorepo = hermes_root.parent
+    ui_dir = monorepo / "ui"
+    if not (ui_dir / "package.json").is_file():
+        return None
+    if not (monorepo / "package.json").is_file():
+        return None
+    return monorepo, ui_dir, hermes_root / "hermes_cli" / "web_dist"
+
+
+def _build_web_ui(hermes_root: Path, *, fatal: bool = False) -> bool:
+    """Build the Marko Next.js UI into ``hermes_cli/web_dist`` when needed.
 
     Args:
-        web_dir: Path to the dashboard frontend source directory.
+        hermes_root: Path to the Hermes package root (contains ``hermes_cli/``).
         fatal: If True, print error guidance and return False on failure
-               instead of a soft warning (used by ``hermes web``).
+               instead of a soft warning (used by ``hermes dashboard``).
 
-    Returns True if the build succeeded or was skipped (no package.json).
+    Returns True if the build succeeded, was skipped (fresh / no source),
+    or a stale dist can be served as fallback.
     """
-    if not (web_dir / "package.json").exists():
-        return True
+    dist_dir = hermes_root / "hermes_cli" / "web_dist"
+    layout = _marko_ui_layout(hermes_root)
 
-    if not _web_ui_build_needed(web_dir):
-        return True
-
-    # Console-encoding-safe print: Windows consoles default to cp1252
-    # (or similar) and will raise UnicodeEncodeError on arrow / check
-    # glyphs unless PYTHONIOENCODING=utf-8 is set. Routing every print
-    # in this function through _say() with errors="replace" keeps the
-    # build path usable on a stock `py -m hermes_cli.main web` invocation.
     def _say(text: str) -> None:
+        # Console-encoding-safe print: Windows consoles default to cp1252
+        # and raise UnicodeEncodeError on arrow / check glyphs unless
+        # PYTHONIOENCODING=utf-8 is set.
         try:
             print(text)
         except UnicodeEncodeError:
             encoding = getattr(sys.stdout, "encoding", None) or "ascii"
             print(text.encode(encoding, errors="replace").decode(encoding, errors="replace"))
+
+    if layout is None:
+        # Standalone Hermes tree without sibling Marko ui/ — accept an
+        # existing dist (e.g. CI-copied) and otherwise soft-skip unless fatal.
+        if (dist_dir / "index.html").exists():
+            return True
+        if fatal:
+            _say("Web UI source not found (expected sibling ui/ next to hermes/).")
+            _say("  From the monorepo root run:  npm install && npm run build:ui")
+            return False
+        return True
+
+    monorepo, ui_dir, dist_dir = layout
+    if not _web_ui_build_needed(ui_dir, dist_dir):
+        return True
 
     from hermes_constants import find_node_executable, with_hermes_node_path
 
@@ -4902,19 +4922,13 @@ def _build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
     if not npm:
         if fatal:
             _say("Web UI frontend not built and npm is not available.")
-            _say("Install Node.js, then run:  cd web && npm install && npm run build")
+            _say("Install Node.js, then run:  npm install && npm run build:ui")
         return not fatal
     build_env = with_hermes_node_path()
-    _say("→ Building web UI...")
+    _say("→ Building Marko web UI (Next.js)...")
 
     def _relay(result: "subprocess.CompletedProcess") -> None:
-        """Print captured npm output so users can see *why* a step failed.
-
-        Windows users hitting `rm -rf` / `cp -r` errors (or any other
-        sync-assets / Vite failure) would otherwise see only ``Web UI
-        build failed`` with no hint of the underlying cause, because
-        the npm calls run with ``capture_output=True``.
-        """
+        """Print captured npm output so users can see *why* a step failed."""
         for blob in (result.stdout, result.stderr):
             if not blob:
                 continue
@@ -4922,16 +4936,12 @@ def _build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
             if text:
                 _say(text)
 
-    npm_cwd = _workspace_root(web_dir)
-    # Scope the install to the web workspace only so that the full workspace
-    # graph (including apps/desktop with its Electron + node-pty deps) is never
-    # resolved here.  Without --workspace the root package.json's apps/* glob
-    # would pull in desktop on every web build. See #38772.
-    # When web/ has its own package-lock.json, _workspace_root() returns
-    # web_dir itself and --workspace would fail.  See #42973.
-    npm_workspace_args: tuple[str, ...] = () if npm_cwd == web_dir else ("--workspace", "web")
+    # Install + build from the Marko monorepo root (workspaces: ui, packages/*).
+    # Scope to the app workspace so hermes/ desktop Electron deps stay out.
+    npm_cwd = monorepo
+    npm_workspace_args: tuple[str, ...] = ("--workspace", "app")
     if _is_termux_startup_environment():
-        npm_cwd, npm_workspace_args = _termux_workspace_install_context(web_dir)
+        npm_cwd, npm_workspace_args = _termux_workspace_install_context(ui_dir)
     r1 = _run_npm_install_deterministic(
         npm,
         npm_cwd,
@@ -4941,35 +4951,30 @@ def _build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
     if r1.returncode != 0:
         _say(
             f"  {'✗' if fatal else '⚠'} Web UI npm install failed"
-            + ("" if fatal else " (hermes web will not be available)")
+            + ("" if fatal else " (dashboard UI will not be available)")
         )
         _relay(r1)
         if fatal:
-            _say("  Run manually:  npm install --workspace web && npm run build -w web")
+            _say("  Run manually:  npm install && npm run build:ui")
         return False
-    # First attempt — stream output via idle-timeout helper (issue #33788).
-    # capture_output=True on a long Vite build looks identical to a hang;
-    # users react by rebooting, which leaves the editable install in a
-    # half-state. Streaming + idle-kill makes failures observable AND
-    # recoverable (the stale-dist fallback below handles the kill path).
-    r2 = _run_with_idle_timeout([npm, "run", "build"], cwd=web_dir, env=build_env)
+
+    # Stream Next build via idle-timeout helper (issue #33788).
+    r2 = _run_with_idle_timeout(
+        [npm, "run", "build:ui"], cwd=monorepo, env=build_env
+    )
     if r2.returncode != 0:
         # Retry once after a short delay — covers boot-time races on Windows
         # (antivirus scanning Node.js binaries, npm cache not ready, transient
         # I/O when launched via Scheduled Task at logon). See issue #23817.
         _time.sleep(3)
-        r2 = _run_with_idle_timeout([npm, "run", "build"], cwd=web_dir, env=build_env)
+        r2 = _run_with_idle_timeout(
+            [npm, "run", "build:ui"], cwd=monorepo, env=build_env
+        )
 
     if r2.returncode != 0:
-        # _run_with_idle_timeout merges stderr into stdout; older callers
-        # using subprocess.run kept them split. Pull from whichever has
-        # content so the error surfaces regardless of which path produced
-        # the CompletedProcess.
         build_output = (r2.stderr or "") + (r2.stdout or "")
         stderr_preview = build_output.strip()
         stderr_tail = "\n  ".join(stderr_preview.splitlines()[-10:]) if stderr_preview else ""
-        project_root = web_dir.parent.parent if web_dir.parent.name == "apps" else web_dir.parent
-        dist_dir = project_root / "hermes_cli" / "web_dist"
         dist_index = dist_dir / "index.html"
 
         # If a stale dist exists, serve it as a fallback instead of failing.
@@ -4983,11 +4988,11 @@ def _build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
 
         _say(
             f"  {'✗' if fatal else '⚠'} Web UI build failed"
-            + ("" if fatal else " (hermes web will not be available)")
+            + ("" if fatal else " (dashboard UI will not be available)")
         )
         _relay(r2)
         if fatal:
-            _say("  Run manually:  npm install --workspace web && npm run build -w web")
+            _say("  Run manually:  npm install && npm run build:ui")
         return False
     _say("  ✓ Web UI built")
     return True
@@ -6401,7 +6406,7 @@ def _update_via_zip(args):
         _install_python_dependencies_with_optional_fallback(pip_cmd)
 
     _update_node_dependencies()
-    _build_web_ui(PROJECT_ROOT / "web")
+    _build_web_ui(PROJECT_ROOT)
 
     # Sync skills
     try:
@@ -8140,7 +8145,7 @@ def _update_node_dependencies() -> None:
     # workspaces — but apps/desktop pulls in Electron as a devDependency,
     # and its postinstall downloads a ~200MB binary.  Most users don't
     # need desktop during `hermes update`, so we install root-only first
-    # then add just the workspaces the CLI/TUI/web build actually requires.
+    # then add just the workspaces the CLI/TUI build actually requires.
     # Desktop deps are installed on demand by the desktop launcher
     # (see _desktop_build_needed).
     print("→ Updating Node.js dependencies...")
@@ -8169,9 +8174,11 @@ def _update_node_dependencies() -> None:
             print(f"    {stderr.splitlines()[-1]}")
         return
 
-    # Step 2: install only the workspaces update needs (ui-tui, web).
-    # --workspace selects specific workspaces; the rest (desktop) are skipped.
-    ws_args = [*extra_args, "--workspace", "ui-tui", "--workspace", "web"]
+    # Step 2: install only the workspaces update needs (ui-tui).
+    # The Vite ``web/`` dashboard was removed; Marko Next UI lives in the
+    # parent monorepo and is built by ``_build_web_ui``. Desktop is skipped
+    # (installed on demand by the desktop launcher).
+    ws_args = [*extra_args, "--workspace", "ui-tui"]
     ws_result = _run_npm_install_deterministic(
         npm,
         PROJECT_ROOT,
@@ -8180,7 +8187,7 @@ def _update_node_dependencies() -> None:
         env=nixos_env,
     )
     if ws_result.returncode == 0:
-        print("  ✓ repo root + ui-tui, web workspaces (desktop skipped)")
+        print("  ✓ repo root + ui-tui workspace (desktop skipped)")
     else:
         print("  ⚠ npm workspace install failed")
         stderr = (ws_result.stderr or "").strip() if ws_result.stderr else ""
@@ -9980,7 +9987,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         _refresh_active_lazy_features()
 
         _update_node_dependencies()
-        _build_web_ui(PROJECT_ROOT / "web")
+        _build_web_ui(PROJECT_ROOT)
 
         # Rebuild the desktop app if the source tree changed since the last
         # build.  ``hermes desktop --build-only`` uses the content-hash stamp
@@ -12121,7 +12128,7 @@ def cmd_dashboard(args):
         # below) to disable it even if a stray dist exists. Set it first.
         os.environ["HERMES_SERVE_HEADLESS"] = "1"
     elif "HERMES_WEB_DIST" not in os.environ and not getattr(args, "skip_build", False):
-        if not _build_web_ui(PROJECT_ROOT / "web", fatal=True):
+        if not _build_web_ui(PROJECT_ROOT, fatal=True):
             sys.exit(1)
     elif getattr(args, "skip_build", False):
         # --build-mode skip trusts the caller to have pre-built the web UI.
@@ -12134,7 +12141,7 @@ def cmd_dashboard(args):
         )
         if not (_dist_root / "index.html").exists():
             print(f"✗ --skip-build was passed but no web dist found at: {_dist_root}")
-            print("  Pre-build first:  npm install --workspace web && npm run build -w web")
+            print("  Pre-build first:  npm install && npm run build:ui")
             print("  Or drop --skip-build to build automatically.")
             sys.exit(1)
         print(f"→ Skipping web UI build (--skip-build); using dist at {_dist_root}")
@@ -12147,7 +12154,7 @@ def cmd_dashboard(args):
         _dist_root = Path(os.environ["HERMES_WEB_DIST"]).expanduser()
         if not (_dist_root / "index.html").exists():
             print(f"✗ HERMES_WEB_DIST is set but no web dist found at: {_dist_root}")
-            print("  Pre-build first:  npm install --workspace web && npm run build -w web")
+            print("  Pre-build first:  npm install && npm run build:ui")
             print("  Or unset HERMES_WEB_DIST to build and use the default web UI dist.")
             sys.exit(1)
         # Write the expanded path back: web_server reads HERMES_WEB_DIST raw

@@ -1,6 +1,6 @@
 /**
  * Adapters: Hermes FastAPI session/message shapes → Marko shared DTOs.
- * Keeps the UI talking one-hop to Hermes without a Bun DTO layer.
+ * Keeps the UI talking one-hop to Hermes without a middle DTO layer.
  */
 import type {
   Message,
@@ -37,6 +37,7 @@ type HermesMessageRow = {
   tool_calls?: unknown
   reasoning?: string | null
   reasoning_content?: string | null
+  a2ui?: unknown
   timestamp?: number | string | null
 }
 
@@ -104,7 +105,18 @@ export function hermesMessageToDto(
       (typeof row.reasoning_content === 'string' && row.reasoning_content) ||
       (typeof row.reasoning === 'string' && row.reasoning) ||
       null,
-    a2ui: null,
+    a2ui:
+      row.a2ui && typeof row.a2ui === 'object'
+        ? (row.a2ui as Record<string, unknown>)
+        : typeof row.a2ui === 'string' && row.a2ui.trim()
+          ? (() => {
+              try {
+                return JSON.parse(row.a2ui) as Record<string, unknown>
+              } catch {
+                return null
+              }
+            })()
+          : null,
     tokens: null,
     createdAt: tsToIso(row.timestamp),
   }
@@ -220,7 +232,7 @@ export async function deleteHermesProfile(id: string): Promise<void> {
 
 /** OJ-only surfaces stubbed when Hermes has no equivalent. */
 export function descopedFeatureMessage(feature: string): string {
-  return `${feature} requires Open Jarvis Bun/Postgres and is descoped in the Hermes-direct build.`
+  return `${feature} requires Open Jarvis Postgres features and is descoped in the Hermes-direct build.`
 }
 
 // ── MCP servers (Hermes /api/mcp/servers*) ────────────────────────────────

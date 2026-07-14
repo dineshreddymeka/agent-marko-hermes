@@ -245,12 +245,21 @@ export async function runAgent(input: {
     state: agentState,
     context: [],
   }
+  const forwardedProps =
+    input.profileId != null && String(input.profileId).trim() !== ''
+      ? { profileId: String(input.profileId).trim() }
+      : undefined
   const stopStartupWatchdog = startStartupWatchdog(runId)
 
   let runPromise: Promise<void> | null = null
   runPromise = (async () => {
     try {
-      await httpAgent.runAgent({ runId, tools: runInput.tools, context: runInput.context })
+      await httpAgent.runAgent({
+        runId,
+        tools: runInput.tools,
+        context: runInput.context,
+        ...(forwardedProps ? { forwardedProps } : {}),
+      })
       // Ignore completion if a newer run already replaced this one.
       if (useChatStore.getState().runId === runId) {
         finishLocalRun(runId, 'idle')

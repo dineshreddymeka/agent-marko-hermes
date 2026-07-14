@@ -1,4 +1,6 @@
 import { generateId } from '@app/lib/utils'
+import { hermesAuthHeaders } from '@app/lib/api'
+import { useSessionsStore } from '@app/stores/sessions'
 import { useUiStore } from '@app/stores/ui'
 import type { CoworkDeliverableType, DocumentRequestDeliverableType } from '@hermes/shared'
 
@@ -90,6 +92,7 @@ export async function sendA2UIAction(
   surfaceId: string,
   action: string,
   data: unknown,
+  sessionId?: string | null,
 ): Promise<void> {
   const payload = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
 
@@ -105,7 +108,7 @@ export async function sendA2UIAction(
       // Same workflow DTO as the Cron panel wizard (POST /api/cron).
       const res = await fetch('/api/cron', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...hermesAuthHeaders() },
         credentials: 'include',
         body: JSON.stringify({
           name,
@@ -151,7 +154,7 @@ export async function sendA2UIAction(
         const content = buildMarkdownDraft(topic, payload)
         const res = await fetch('/api/workspace/file', {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...hermesAuthHeaders() },
           credentials: 'include',
           body: JSON.stringify({ path, content }),
         })
@@ -169,7 +172,7 @@ export async function sendA2UIAction(
         if (!coworkType) throw new Error('Unsupported deliverable type')
         const res = await fetch('/api/cowork/tasks', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...hermesAuthHeaders() },
           credentials: 'include',
           body: JSON.stringify({
             goal: buildCoworkGoal(payload),
@@ -205,13 +208,13 @@ export async function sendA2UIAction(
       const res = entryId
         ? await fetch(`/api/memory/entries/${entryId}`, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...hermesAuthHeaders() },
             credentials: 'include',
             body: JSON.stringify(body),
           })
         : await fetch('/api/memory/entries', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...hermesAuthHeaders() },
             credentials: 'include',
             body: JSON.stringify(body),
           })
@@ -219,6 +222,7 @@ export async function sendA2UIAction(
     } else if (action === 'delete' && payload.entryId) {
       const res = await fetch(`/api/memory/entries/${String(payload.entryId)}`, {
         method: 'DELETE',
+        headers: { ...hermesAuthHeaders() },
         credentials: 'include',
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -237,12 +241,16 @@ export async function sendA2UIAction(
     })
   }
 
-  // AG-UI actionResponse follow-up (agent round-trip)
+  // AG-UI actionResponse follow-up on the active chat thread (agent round-trip)
   const runId = generateId()
-  const threadId = generateId()
+  const threadId =
+    (typeof sessionId === 'string' && sessionId.trim()) ||
+    useSessionsStore.getState().activeSessionId ||
+    generateId()
+  const session = useSessionsStore.getState().sessions.find((s) => s.id === threadId)
   await fetch('/agui', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...hermesAuthHeaders() },
     credentials: 'include',
     body: JSON.stringify({
       threadId,
@@ -257,6 +265,7 @@ export async function sendA2UIAction(
       tools: [],
       state: { a2uiAction: { surfaceId, action, data: payload } },
       context: [],
+      forwardedProps: session?.profileId ? { profileId: session.profileId } : undefined,
     }),
   }).catch(() => {
     /* offline / mock — REST side effects above still count */

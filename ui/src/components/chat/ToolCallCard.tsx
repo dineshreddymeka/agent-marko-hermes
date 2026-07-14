@@ -52,20 +52,21 @@ function formatArgs(args: string): string {
 }
 
 export function ToolCallCard({ toolCall }: ToolCallCardProps) {
-  const [open, setOpen] = useState(toolCall.status !== 'done')
+  const spinning = ['pending', 'streaming-args', 'executing'].includes(toolCall.status)
+  const [open, setOpen] = useState(spinning)
+  const [userToggled, setUserToggled] = useState(false)
   const prevLenRef = useRef(0)
   const Icon = statusIcons[toolCall.status]
-  const spinning = ['pending', 'streaming-args', 'executing'].includes(toolCall.status)
   const formatted = toolCall.result != null ? formatResult(toolCall.result) : null
   const toolDisplay = toolLabel(toolCall.name)
   const statusDisplay = toolCallStatusLabel(toolCall.status)
   const isStreamingArgs = toolCall.status === 'streaming-args'
 
   useEffect(() => {
-    if (toolCall.status === 'streaming-args' || toolCall.status === 'executing') {
-      setOpen(true)
-    }
-  }, [toolCall.status])
+    if (userToggled) return
+    if (spinning) setOpen(true)
+    else if (toolCall.status === 'done' || toolCall.status === 'error') setOpen(false)
+  }, [toolCall.status, spinning, userToggled])
 
   useEffect(() => {
     if (!isStreamingArgs) prevLenRef.current = toolCall.args.length
@@ -79,28 +80,50 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
   }, [toolCall.args, isStreamingArgs])
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border-muted bg-canvas-subtle text-sm shadow-sm">
+    <div
+      className={cn(
+        'overflow-hidden rounded-xl border border-border-muted bg-canvas-subtle text-sm shadow-sm',
+        toolCall.status === 'done' && 'motion-safe:agent-status-settle',
+        spinning && 'motion-safe:agent-chip-pulse',
+      )}
+    >
       {spinning && (
         <div className="motion-safe:stage-sweep-bar h-0.5 w-full opacity-50" aria-hidden />
       )}
       <button
         type="button"
-        onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-canvas-inset/50"
+        onClick={() => {
+          setUserToggled(true)
+          setOpen((v) => !v)
+        }}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-canvas-inset/50"
       >
-        {open ? <ChevronDown size={14} className="text-fg-muted" /> : <ChevronRight size={14} className="text-fg-muted" />}
+        {open ? (
+          <ChevronDown size={14} className="text-fg-muted" />
+        ) : (
+          <ChevronRight size={14} className="text-fg-muted" />
+        )}
         <Wrench size={14} className="text-fg-muted" />
         <span className="font-medium text-fg" title={labelTitle(toolCall.name, toolDisplay)}>
           {toolDisplay}
         </span>
-        <span className="text-[11px] text-fg-muted">{statusDisplay}</span>
+        <span
+          className={cn(
+            'text-[11px]',
+            spinning ? 'motion-safe:text-shimmer' : 'text-fg-muted',
+            toolCall.status === 'done' && 'text-success',
+            toolCall.status === 'error' && 'text-danger',
+          )}
+        >
+          {statusDisplay}
+        </span>
         <Icon
           size={14}
           className={cn(
             'ml-auto motion-safe:transition-transform',
             toolCall.status === 'done' && 'text-success motion-safe:scale-110',
             toolCall.status === 'error' && 'text-danger',
-            spinning && 'animate-spin text-fg-muted',
+            spinning && 'animate-spin text-accent',
           )}
         />
       </button>

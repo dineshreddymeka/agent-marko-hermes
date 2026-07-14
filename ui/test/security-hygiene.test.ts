@@ -86,10 +86,11 @@ describe('CommandPalette persisted session', () => {
 })
 
 describe('Hermes-direct descope messaging', () => {
-  test('descopedFeatureMessage documents no Bun/Postgres layer', async () => {
+  test('descopedFeatureMessage documents Hermes-direct (no middle layer)', async () => {
     const { descopedFeatureMessage } = await import('../src/lib/hermes-adapters')
     const msg = descopedFeatureMessage('Memory panel')
     expect(msg).toContain('Hermes-direct')
     expect(msg).not.toContain('localhost:3001')
+    expect(msg.toLowerCase()).not.toContain('bun')
   })
 })

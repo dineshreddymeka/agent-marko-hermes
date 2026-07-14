@@ -55,8 +55,17 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Build web dashboard
-        run: cd web && npm ci && npm run build
+      - name: Build Marko web UI (optional prebuilt dist)
+        # Upstream Vite ``web/`` was removed. Prefer a prebuilt Marko Next
+        # export at hermes_cli/web_dist; otherwise skip (headless wheel).
+        run: |
+          if [ -f hermes_cli/web_dist/index.html ]; then
+            echo "Using existing hermes_cli/web_dist"
+          else
+            echo "No web_dist present — packaging headless (Marko UI built via monorepo npm run build:ui)"
+            mkdir -p hermes_cli/web_dist
+            printf '%s\n' '<!doctype html><title>Hermes</title><p>UI not bundled. Build with npm run build:ui</p>' > hermes_cli/web_dist/index.html
+          fi
 
       - name: Build TUI bundle
         run: cd ui-tui && npm ci && npm run build

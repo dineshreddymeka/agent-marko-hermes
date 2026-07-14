@@ -1,5 +1,5 @@
 /**
- * Typed fetch wrapper for Agent-Marko → Hermes FastAPI (direct, no Bun hop).
+ * Typed fetch wrapper for Agent-Marko → Hermes FastAPI (direct, no middle hop).
  * Injects X-Hermes-Session-Token when the dashboard bootstraps it into index.html.
  */
 

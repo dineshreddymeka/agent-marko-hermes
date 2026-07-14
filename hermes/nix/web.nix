@@ -1,34 +1,20 @@
-# nix/web.nix — Hermes Web Dashboard (Vite/React) frontend build
+# nix/web.nix — placeholder web_dist for Hermes packaging.
+#
+# The upstream Vite React dashboard (``web/``) was removed from this fork.
+# Agent-Marko Next.js UI is built from the parent monorepo via
+# ``npm run build:ui`` into ``hermes_cli/web_dist``. Nix packaging ships a
+# minimal placeholder so the wrapped binary still has a HERMES_WEB_DIST path.
 { pkgs, hermesNpmLib, ... }:
-let
-  npm = hermesNpmLib.mkNpmPassthru { folder = "web"; attr = "web"; pname = "hermes-web"; };
-
-  packageJson = builtins.fromJSON (builtins.readFile (npm.src + "/web/package.json"));
-  version = packageJson.version;
-in
-pkgs.buildNpmPackage (npm // {
-  pname = "hermes-web";
-  inherit version;
-
-  doCheck = false;
-
-  buildPhase = ''
-    # Build from web/ so vite.config.ts and tsconfig resolve correctly.
-    # The workspace root's node_modules/ is at ../node_modules/.
-    cd web
-    node ../node_modules/typescript/bin/tsc -b
-    # outDir in vite.config.ts points to ../hermes_cli/web_dist for the
-    # monorepo layout.  Override with --outDir dist for the nix build.
-    node ../node_modules/vite/bin/vite.js build --outDir dist
-
-    # Return to source root so installPhase paths are correct.
-    cd ..
-  '';
-
-  installPhase = ''
-    runHook preInstall
-    # vite writes to web/dist/ (we cd'd there, overrode outDir, then cd'd back).
-    cp -r web/dist $out
-    runHook postInstall
-  '';
-})
+pkgs.runCommand "hermes-web-dist" { } ''
+  mkdir -p $out
+  cat > $out/index.html <<'EOF'
+  <!doctype html>
+  <html lang="en">
+    <head><meta charset="utf-8"><title>Hermes</title></head>
+    <body>
+      <p>Marko UI is not built by Nix. From the monorepo root run:
+      <code>npm install &amp;&amp; npm run build:ui</code></p>
+    </body>
+  </html>
+  EOF
+''
