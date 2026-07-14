@@ -1,5 +1,3 @@
-import ShikiWorker from '@app/workers/shiki.worker?worker'
-
 type HighlightRequest = {
   id: string
   code: string
@@ -16,7 +14,7 @@ const pending = new Map<string, { resolve: (html: string) => void; reject: (e: E
 
 function getWorker(): Worker {
   if (!worker) {
-    worker = new ShikiWorker()
+    worker = new Worker(new URL('../../workers/shiki.worker.ts', import.meta.url))
     worker.onmessage = (e: MessageEvent<HighlightResponse>) => {
       const { id, html } = e.data
       const p = pending.get(id)

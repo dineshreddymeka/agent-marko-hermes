@@ -4,10 +4,10 @@
   "version": "0.2.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "lint": "eslint src",
+    "dev": "next dev -H 127.0.0.1 -p 5173",
+    "build": "next build && node scripts/copy-web-dist.mjs",
+    "start": "next start -H 127.0.0.1 -p 5173",
+    "lint": "eslint src app",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -23,6 +23,7 @@
     "katex": "^0.17.0",
     "lucide-react": "^1.24.0",
     "mermaid": "^11.16.0",
+    "next": "^15.5.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
@@ -34,19 +35,12 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.2",
-    "@tanstack/router-plugin": "^1.120.10",
     "@types/react": "^19.1.6",
     "@types/react-dom": "^19.1.5",
-    "@babel/core": "^7.29.0",
-    "@rolldown/plugin-babel": "^0.2.3",
-    "@types/babel__core": "^7.20.5",
-    "@vitejs/plugin-react": "6.0.3",
-    "babel-plugin-react-compiler": "^1.0.0",
     "happy-dom": "^20.10.6",
     "postcss": "^8.5.16",
     "tailwindcss": "^4.1.8",
     "typescript": "^6.0.3",
-    "vite": "^8.1.4",
     "vitest": "^3.2.4"
   }
 }
