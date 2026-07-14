@@ -217,7 +217,12 @@ export function Composer({ sessionId }: ComposerProps) {
     setAttachments([])
     setSlashOpen(false)
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
-    await runAgent({ sessionId: sid, content })
+    const session = useSessionsStore.getState().sessions.find((s) => s.id === sid)
+    await runAgent({
+      sessionId: sid,
+      content,
+      profileId: session?.profileId ?? null,
+    })
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

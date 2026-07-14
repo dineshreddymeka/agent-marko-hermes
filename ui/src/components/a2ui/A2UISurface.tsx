@@ -46,7 +46,9 @@ export function A2UISurface({ surfaceId }: A2UISurfaceProps) {
             key={component.id}
             component={component}
             data={surface.data}
-            onAction={(action, data) => sendA2UIAction(surfaceId, action, data)}
+            onAction={(action, data) =>
+              sendA2UIAction(surfaceId, action, data, surface.sessionId)
+            }
           />
         ))}
         {!surface.complete && <Skeleton className="h-6 w-1/2" />}

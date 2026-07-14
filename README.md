@@ -64,6 +64,13 @@ PYTHONPATH=. python3 -m hermes_cli.main dashboard --no-open --skip-build
 
 Marko is served same-origin from Hermes. Chat hits `POST /agui` in-process.
 
+### AG-UI + A2UI
+
+- Hermes streams text, thinking, tools, and `CUSTOM a2ui.message` over `/agui`
+- Model tool `a2ui_render` (+ Marko frontend tools) available when `HERMES_PLATFORM=marko`
+- A2UI actions use `/api/cron`, `/api/workspace/file`, memory routes, then actionResponse on the same thread
+- Persisted messages include `a2ui` JSON for reload hydration
+
 ## Auth
 
 | Mode | Behavior |
