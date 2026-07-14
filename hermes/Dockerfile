@@ -115,12 +115,12 @@ WORKDIR /opt/hermes
 # because it is referenced as a `file:` workspace dependency from
 # ui-tui/package.json.  Copying the tree up front lets npm resolve the
 # workspace to real content instead of stopping at a bare package.json.
+#
+# The upstream Vite ``web/`` dashboard was removed; Marko Next UI is built
+# from the parent monorepo (``npm run build:ui``) into hermes_cli/web_dist.
 COPY package.json package-lock.json ./
-COPY web/package.json web/
 COPY ui-tui/package.json ui-tui/
 COPY ui-tui/packages/hermes-ink/ ui-tui/packages/hermes-ink/
-# apps/shared/ is copied IN FULL because web/package.json references it as a
-# `file:` workspace dependency (same pattern as hermes-ink above).
 COPY apps/shared/ apps/shared/
 
 # `npm_config_install_links=false` forces npm to install `file:` deps as
@@ -183,13 +183,12 @@ RUN touch ./README.md
 RUN uv sync --frozen --no-install-project --extra all --extra messaging --extra anthropic --extra bedrock --extra azure-identity --extra hindsight --extra matrix
 
 # ---------- Frontend build (cached independently from Python source) ----------
-# Copy only the frontend source trees first so that Python-only changes don't
-# invalidate the (relatively slow) web + ui-tui build layer.
-COPY web/ web/
+# Copy only the TUI source tree first so that Python-only changes don't
+# invalidate the ui-tui build layer. Marko Next UI is built outside this
+# Dockerfile (monorepo ``npm run build:ui`` → hermes_cli/web_dist).
 COPY ui-tui/ ui-tui/
 COPY apps/shared/ apps/shared/
-RUN cd web && npm run build && \
-    cd ../ui-tui && npm run build
+RUN cd ui-tui && npm run build
 
 # ---------- Source code ----------
 # .dockerignore excludes node_modules, so the installs above survive.
@@ -281,8 +280,8 @@ ENV HERMES_WEB_DIST=/opt/hermes/hermes_cli/web_dist
 # nix/packaged-release path the launcher was designed for.
 #
 # Why this is required (not just an optimization): the root package-lock.json
-# describes the WHOLE monorepo workspace set (root + web + ui-tui + apps/*),
-# but the image only installs root/web/ui-tui (apps/* — the desktop app — is
+# describes the monorepo workspace set (root + ui-tui + apps/*),
+# but the image only installs root/ui-tui (apps/* — the desktop app — is
 # never `npm install`ed here). So the actualized node_modules permanently
 # disagrees with the canonical lock, _tui_need_npm_install() returns True on
 # every launch, and the runtime `npm install` it triggers (a) can never

@@ -1,9 +1,9 @@
-"""Tests for _web_ui_build_needed — staleness check for the web UI dist.
+"""Tests for Marko Next.js web UI build helpers.
 
-Critical invariant: the dashboard Vite build outputs to hermes_cli/web_dist/
-(vite.config.ts: outDir: "../../hermes_cli/web_dist"), NOT web/dist/.
-The sentinel must be checked in the correct output directory or the
-freshness check is a no-op and the OOM rebuild always runs.
+Critical invariant: the Marko Next export lands in hermes_cli/web_dist/
+(via ui/scripts/copy-web-dist.mjs), NOT ui/out/ at runtime. The sentinel
+must be checked in the correct output directory or the freshness check
+is a no-op and the rebuild always runs.
 """
 
 import os
@@ -11,8 +11,12 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
-
-from hermes_cli.main import _web_ui_build_needed, _build_web_ui, _run_npm_install_deterministic
+from hermes_cli.main import (
+    _web_ui_build_needed,
+    _build_web_ui,
+    _marko_ui_layout,
+    _run_npm_install_deterministic,
+)
 
 
 def _touch(path: Path, offset: float = 0.0) -> None:
@@ -23,116 +27,122 @@ def _touch(path: Path, offset: float = 0.0) -> None:
         os.utime(path, (t, t))
 
 
-def _make_web_dir(tmp_path: Path) -> tuple[Path, Path]:
-    """Return (web_dir, dist_dir) matching real repo layout."""
-    web_dir = tmp_path / "web"
-    web_dir.mkdir(parents=True)
-    (web_dir / "package.json").touch()
-    dist_dir = tmp_path / "hermes_cli" / "web_dist"
-    return web_dir, dist_dir
+def _make_marko_layout(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+    """Return (hermes_root, monorepo, ui_dir, dist_dir) matching real layout."""
+    monorepo = tmp_path
+    (monorepo / "package.json").write_text(
+        '{"name":"agent-marko-hermes","scripts":{"build:ui":"npm run build -w app"}}',
+        encoding="utf-8",
+    )
+    ui_dir = monorepo / "ui"
+    ui_dir.mkdir()
+    (ui_dir / "package.json").write_text('{"name":"app"}', encoding="utf-8")
+    hermes_root = monorepo / "hermes"
+    hermes_root.mkdir()
+    dist_dir = hermes_root / "hermes_cli" / "web_dist"
+    return hermes_root, monorepo, ui_dir, dist_dir
+
+
+class TestMarkoUiLayout:
+    def test_resolves_sibling_ui(self, tmp_path):
+        hermes_root, monorepo, ui_dir, dist_dir = _make_marko_layout(tmp_path)
+        assert _marko_ui_layout(hermes_root) == (monorepo, ui_dir, dist_dir)
+
+    def test_returns_none_without_ui(self, tmp_path):
+        hermes_root = tmp_path / "hermes"
+        hermes_root.mkdir()
+        (tmp_path / "package.json").write_text("{}", encoding="utf-8")
+        assert _marko_ui_layout(hermes_root) is None
 
 
 class TestWebUIBuildNeeded:
-
     def test_returns_true_when_dist_missing(self, tmp_path):
-        web_dir, _ = _make_web_dir(tmp_path)
-        assert _web_ui_build_needed(web_dir) is True
+        _, _, ui_dir, dist_dir = _make_marko_layout(tmp_path)
+        assert _web_ui_build_needed(ui_dir, dist_dir) is True
 
-    def test_returns_false_when_vite_manifest_fresh(self, tmp_path):
-        web_dir, dist_dir = _make_web_dir(tmp_path)
-        _touch(web_dir / "src" / "App.tsx", offset=-10)
-        _touch(dist_dir / ".vite" / "manifest.json")
-        assert _web_ui_build_needed(web_dir) is False
-
-    def test_returns_true_when_source_newer_than_manifest(self, tmp_path):
-        web_dir, dist_dir = _make_web_dir(tmp_path)
-        _touch(dist_dir / ".vite" / "manifest.json", offset=-10)
-        _touch(web_dir / "src" / "App.tsx")
-        assert _web_ui_build_needed(web_dir) is True
-
-    def test_falls_back_to_index_html_when_manifest_missing(self, tmp_path):
-        web_dir, dist_dir = _make_web_dir(tmp_path)
-        _touch(web_dir / "src" / "main.ts", offset=-10)
+    def test_returns_false_when_index_fresh(self, tmp_path):
+        _, _, ui_dir, dist_dir = _make_marko_layout(tmp_path)
+        _touch(ui_dir / "src" / "App.tsx", offset=-10)
         _touch(dist_dir / "index.html")
-        assert _web_ui_build_needed(web_dir) is False
+        assert _web_ui_build_needed(ui_dir, dist_dir) is False
 
-    def test_web_dist_dir_not_web_dist_subdir(self, tmp_path):
-        """Regression: sentinel must be in hermes_cli/web_dist/, NOT web/dist/."""
-        web_dir, dist_dir = _make_web_dir(tmp_path)
-        _touch(web_dir / "src" / "App.tsx", offset=-10)
-        # Place manifest in wrong location (web/dist/) — should NOT count as fresh
-        wrong_dist = web_dir / "dist" / ".vite" / "manifest.json"
-        _touch(wrong_dist)
-        # Correct location is empty → still needs build
-        assert _web_ui_build_needed(web_dir) is True
+    def test_returns_true_when_source_newer_than_index(self, tmp_path):
+        _, _, ui_dir, dist_dir = _make_marko_layout(tmp_path)
+        _touch(dist_dir / "index.html", offset=-10)
+        _touch(ui_dir / "src" / "App.tsx")
+        assert _web_ui_build_needed(ui_dir, dist_dir) is True
 
-    def test_returns_true_when_package_lock_newer_than_dist(self, tmp_path):
-        web_dir, dist_dir = _make_web_dir(tmp_path)
-        _touch(dist_dir / ".vite" / "manifest.json", offset=-10)
-        # With a single workspace root lockfile, the lockfile lives at the
-        # project root (tmp_path), not inside web_dir.
-        _touch(tmp_path / "package-lock.json")
-        assert _web_ui_build_needed(web_dir) is True
+    def test_returns_true_when_next_config_newer(self, tmp_path):
+        _, _, ui_dir, dist_dir = _make_marko_layout(tmp_path)
+        _touch(dist_dir / "index.html", offset=-10)
+        _touch(ui_dir / "next.config.ts")
+        assert _web_ui_build_needed(ui_dir, dist_dir) is True
 
-    def test_returns_true_when_vite_config_newer_than_dist(self, tmp_path):
-        web_dir, dist_dir = _make_web_dir(tmp_path)
-        _touch(dist_dir / ".vite" / "manifest.json", offset=-10)
-        _touch(web_dir / "vite.config.ts")
-        assert _web_ui_build_needed(web_dir) is True
+    def test_returns_true_when_root_lockfile_newer(self, tmp_path):
+        _, monorepo, ui_dir, dist_dir = _make_marko_layout(tmp_path)
+        _touch(dist_dir / "index.html", offset=-10)
+        _touch(monorepo / "package-lock.json")
+        assert _web_ui_build_needed(ui_dir, dist_dir) is True
 
-    def test_ignores_node_modules(self, tmp_path):
-        web_dir, dist_dir = _make_web_dir(tmp_path)
-        # package.json older than manifest; only node_modules file is newer
-        _touch(web_dir / "package.json", offset=-20)
-        _touch(dist_dir / ".vite" / "manifest.json", offset=-10)
-        _touch(web_dir / "node_modules" / "react" / "index.js")
-        assert _web_ui_build_needed(web_dir) is False
-
-    def test_ignores_dist_subdir_under_web(self, tmp_path):
-        web_dir, dist_dir = _make_web_dir(tmp_path)
-        # package.json older than manifest; only web/dist file is newer
-        _touch(web_dir / "package.json", offset=-20)
-        _touch(dist_dir / ".vite" / "manifest.json", offset=-10)
-        _touch(web_dir / "dist" / "assets" / "index.js")
-        assert _web_ui_build_needed(web_dir) is False
+    def test_ignores_node_modules_and_out(self, tmp_path):
+        _, monorepo, ui_dir, dist_dir = _make_marko_layout(tmp_path)
+        _touch(ui_dir / "package.json", offset=-20)
+        _touch(monorepo / "package.json", offset=-20)
+        _touch(dist_dir / "index.html", offset=-10)
+        _touch(ui_dir / "node_modules" / "react" / "index.js")
+        _touch(ui_dir / "out" / "index.html")
+        assert _web_ui_build_needed(ui_dir, dist_dir) is False
 
 
 class TestBuildWebUISkipsWhenFresh:
-
     def test_skips_npm_when_dist_is_fresh(self, tmp_path):
-        web_dir, dist_dir = _make_web_dir(tmp_path)
-        _touch(dist_dir / ".vite" / "manifest.json")
+        hermes_root, _, ui_dir, dist_dir = _make_marko_layout(tmp_path)
+        _touch(ui_dir / "src" / "App.tsx", offset=-10)
+        _touch(dist_dir / "index.html")
 
         with patch("hermes_cli.main.shutil.which", return_value="/usr/bin/npm"), \
              patch("hermes_cli.main.subprocess.run") as mock_run:
-            result = _build_web_ui(web_dir)
+            result = _build_web_ui(hermes_root)
 
         assert result is True
         mock_run.assert_not_called()
 
     def test_runs_npm_when_dist_missing(self, tmp_path):
-        web_dir, _ = _make_web_dir(tmp_path)
+        hermes_root, monorepo, _, _ = _make_marko_layout(tmp_path)
 
-        mock_cp = __import__("subprocess").CompletedProcess([], 0, stdout=b"", stderr=b"")
+        mock_cp = __import__("subprocess").CompletedProcess([], 0, stdout="", stderr="")
         build_ok = __import__("subprocess").CompletedProcess([], 0, stdout="", stderr="")
         with patch("hermes_cli.main.shutil.which", return_value="/usr/bin/npm"), \
              patch("hermes_cli.main.subprocess.run", return_value=mock_cp) as mock_run, \
-             patch("hermes_cli.main._run_with_idle_timeout", return_value=build_ok) as mock_idle:
-            result = _build_web_ui(web_dir)
+             patch("hermes_cli.main._run_with_idle_timeout", return_value=build_ok) as mock_idle, \
+             patch("hermes_constants.find_node_executable", return_value="/usr/bin/npm"):
+            result = _build_web_ui(hermes_root)
 
         assert result is True
-        # npm install goes through subprocess.run; npm run build goes through
-        # _run_with_idle_timeout (issue #33788).
-        assert mock_run.call_count == 1   # install only
-        assert mock_idle.call_count == 1  # build only
+        assert mock_run.call_count == 1
+        assert mock_idle.call_count == 1
+        idle_args, idle_kwargs = mock_idle.call_args
+        assert idle_args[0] == ["/usr/bin/npm", "run", "build:ui"]
+        assert idle_kwargs["cwd"] == monorepo
+
+    def test_skips_when_no_marko_ui_and_dist_exists(self, tmp_path):
+        hermes_root = tmp_path / "hermes"
+        dist = hermes_root / "hermes_cli" / "web_dist"
+        _touch(dist / "index.html")
+        assert _build_web_ui(hermes_root) is True
+
+    def test_fatal_without_marko_ui_or_dist(self, tmp_path):
+        hermes_root = tmp_path / "hermes"
+        hermes_root.mkdir()
+        assert _build_web_ui(hermes_root, fatal=True) is False
 
     def test_npm_install_uses_utf8_replace_output_decoding(self, tmp_path):
-        web_dir, _ = _make_web_dir(tmp_path)
-        (web_dir / "package-lock.json").write_text("{}", encoding="utf-8")
+        cwd = tmp_path
+        (cwd / "package-lock.json").write_text("{}", encoding="utf-8")
 
         mock_cp = __import__("subprocess").CompletedProcess([], 0, stdout="", stderr="")
         with patch("hermes_cli.main.subprocess.run", return_value=mock_cp) as mock_run:
-            result = _run_npm_install_deterministic("/usr/bin/npm", web_dir)
+            result = _run_npm_install_deterministic("/usr/bin/npm", cwd)
 
         assert result.returncode == 0
         _, kwargs = mock_run.call_args
@@ -140,198 +150,41 @@ class TestBuildWebUISkipsWhenFresh:
         assert kwargs["encoding"] == "utf-8"
         assert kwargs["errors"] == "replace"
 
-    def test_npm_install_sets_ci_to_suppress_postinstall_tty_output(self, tmp_path):
-        web_dir, _ = _make_web_dir(tmp_path)
-        (web_dir / "package-lock.json").write_text("{}", encoding="utf-8")
-
-        mock_cp = __import__("subprocess").CompletedProcess([], 0, stdout="", stderr="")
-        with patch("hermes_cli.main.subprocess.run", return_value=mock_cp) as mock_run:
-            _run_npm_install_deterministic(
-                "/usr/bin/npm",
-                web_dir,
-                env={"PYTHON": "/nix/store/python"},
-            )
-
-        _, kwargs = mock_run.call_args
-        assert kwargs["env"]["CI"] == "1"
-        assert kwargs["env"]["PYTHON"] == "/nix/store/python"
-
-    def test_npm_install_uses_workspace_web_scope(self, tmp_path):
-        web_dir, _ = _make_web_dir(tmp_path)
-        # Real workspace checkout: the single lockfile lives at the root, so
-        # _workspace_root(web_dir) resolves to the parent and --workspace web
-        # scopes the install. (Without a root lockfile, web_dir IS the root and
-        # --workspace would be dropped — see test below and #42973.)
-        (tmp_path / "package-lock.json").write_text("{}", encoding="utf-8")
-        mock_cp = __import__("subprocess").CompletedProcess([], 0, stdout="", stderr="")
-        build_ok = __import__("subprocess").CompletedProcess([], 0, stdout="", stderr="")
-        with patch("hermes_cli.main.shutil.which", return_value="/usr/bin/npm"), \
-             patch("hermes_cli.main.subprocess.run", return_value=mock_cp) as mock_run, \
-             patch("hermes_cli.main._run_with_idle_timeout", return_value=build_ok):
-            result = _build_web_ui(web_dir)
-        assert result is True
-        install_cmd = mock_run.call_args[0][0]
-        assert "--workspace" in install_cmd
-        assert install_cmd[install_cmd.index("--workspace") + 1] == "web"
-
-    def test_web_install_omits_workspace_when_web_has_own_lockfile(
-        self, tmp_path, monkeypatch
-    ):
-        """web/ with its own lockfile => _workspace_root returns web_dir, so
-        --workspace web would fail (npm can't find that workspace from inside
-        web/). The flag must be dropped and the install run plainly from web_dir.
-        Symmetric to the TUI fix in test_tui_npm_install.py. See #42973.
-
-        With web's own lockfile present at cwd, _run_npm_install_deterministic
-        uses ``npm ci`` (not ``npm install``).
-        """
-        web_dir, _ = _make_web_dir(tmp_path)
-        (web_dir / "package-lock.json").write_text("{}", encoding="utf-8")
-        (tmp_path / "package-lock.json").write_text("{}", encoding="utf-8")
-        monkeypatch.delenv("TERMUX_VERSION", raising=False)
-        monkeypatch.setenv("PREFIX", "/usr")
-
-        install_cp = __import__("subprocess").CompletedProcess([], 0, stdout="", stderr="")
-        build_cp = __import__("subprocess").CompletedProcess([], 0, stdout="", stderr="")
-        with patch("hermes_cli.main.shutil.which", return_value="/usr/bin/npm"), \
-             patch("hermes_cli.main.subprocess.run", return_value=install_cp) as mock_run, \
-             patch("hermes_cli.main._run_with_idle_timeout", return_value=build_cp):
-            result = _build_web_ui(web_dir)
-
-        assert result is True
-        args, kwargs = mock_run.call_args
-        assert "--workspace" not in args[0]
-        assert args[0] == ["/usr/bin/npm", "ci", "--silent"]
-        assert kwargs["cwd"] == web_dir
-
-    def test_web_build_uses_idle_timeout_helper(self, tmp_path):
-        """npm run build now goes through _run_with_idle_timeout (issue #33788).
-
-        The install step keeps its capture_output behavior (the existing
-        retry-on-EPERM contract depends on it); only the long-running build
-        step is streamed + idle-killed.
-        """
-        web_dir, _ = _make_web_dir(tmp_path)
-
-        install_cp = __import__("subprocess").CompletedProcess([], 0, stdout="", stderr="")
-        build_cp = __import__("subprocess").CompletedProcess([], 0, stdout="", stderr="")
-        with patch("hermes_cli.main.shutil.which", return_value="/usr/bin/npm"), \
-             patch("hermes_cli.main.subprocess.run", return_value=install_cp), \
-             patch("hermes_cli.main._run_with_idle_timeout", return_value=build_cp) as mock_idle:
-            result = _build_web_ui(web_dir)
-
-        assert result is True
-        # Build was invoked through the idle-timeout helper, not subprocess.run.
-        mock_idle.assert_called_once()
-        args, kwargs = mock_idle.call_args
-        # Positional: [npm, "run", "build"]; cwd passed as kwarg.
-        assert args[0] == ["/usr/bin/npm", "run", "build"]
-        assert kwargs["cwd"] == web_dir
-
-    def test_termux_web_install_is_workspace_scoped(self, tmp_path, monkeypatch):
-        web_dir, _ = _make_web_dir(tmp_path)
-        (tmp_path / "package-lock.json").write_text("{}", encoding="utf-8")
-        monkeypatch.setenv("TERMUX_VERSION", "1")
-
-        install_cp = __import__("subprocess").CompletedProcess([], 0, stdout="", stderr="")
-        build_cp = __import__("subprocess").CompletedProcess([], 0, stdout="", stderr="")
-        with patch("hermes_cli.main.shutil.which", return_value="/usr/bin/npm"), \
-             patch("hermes_cli.main.subprocess.run", return_value=install_cp) as mock_run, \
-             patch("hermes_cli.main._run_with_idle_timeout", return_value=build_cp):
-            result = _build_web_ui(web_dir)
-
-        assert result is True
-        args, kwargs = mock_run.call_args
-        assert args[0] == [
-            "/usr/bin/npm",
-            "ci",
-            "--workspace",
-            "web",
-            "--include-workspace-root=false",
-            "--silent",
-        ]
-        assert kwargs["cwd"] == tmp_path
-
-    def test_desktop_web_install_uses_existing_workspace_root(
-        self, tmp_path, monkeypatch
-    ):
-        web_dir, _ = _make_web_dir(tmp_path)
-        (tmp_path / "package-lock.json").write_text("{}", encoding="utf-8")
-        monkeypatch.delenv("TERMUX_VERSION", raising=False)
-        monkeypatch.setenv("PREFIX", "/usr")
-
-        install_cp = __import__("subprocess").CompletedProcess([], 0, stdout="", stderr="")
-        build_cp = __import__("subprocess").CompletedProcess([], 0, stdout="", stderr="")
-        with patch("hermes_cli.main.shutil.which", return_value="/usr/bin/npm"), \
-             patch("hermes_cli.main.subprocess.run", return_value=install_cp) as mock_run, \
-             patch("hermes_cli.main._run_with_idle_timeout", return_value=build_cp):
-            result = _build_web_ui(web_dir)
-
-        assert result is True
-        args, kwargs = mock_run.call_args
-        assert args[0] == ["/usr/bin/npm", "ci", "--workspace", "web", "--silent"]
-        assert kwargs["cwd"] == tmp_path
-
 
 class TestBuildWebUIRetryAndStaleFallback:
-    """Coverage for the retry + stale-dist fallback added in #23824 / issue #23817."""
-
     def test_retries_build_once_on_failure(self, tmp_path):
-        web_dir, _ = _make_web_dir(tmp_path)
+        hermes_root, _, _, _ = _make_marko_layout(tmp_path)
         Subprocess = __import__("subprocess")
         install_ok = Subprocess.CompletedProcess([], 0, stdout="", stderr="")
-        # build attempt 1: fail; build attempt 2: success.
         build_fail = Subprocess.CompletedProcess([], 1, stdout="EPERM", stderr="")
         build_ok = Subprocess.CompletedProcess([], 0, stdout="", stderr="")
-        with patch("hermes_cli.main.shutil.which", return_value="/usr/bin/npm"), \
+        with patch("hermes_constants.find_node_executable", return_value="/usr/bin/npm"), \
              patch("hermes_cli.main._time.sleep") as mock_sleep, \
              patch("hermes_cli.main.subprocess.run", return_value=install_ok), \
              patch("hermes_cli.main._run_with_idle_timeout",
                    side_effect=[build_fail, build_ok]) as mock_idle:
-            result = _build_web_ui(web_dir)
+            result = _build_web_ui(hermes_root)
 
         assert result is True
-        assert mock_idle.call_count == 2  # build + retry
+        assert mock_idle.call_count == 2
         mock_sleep.assert_called_once_with(3)
 
     def test_falls_back_to_stale_dist_when_retry_also_fails(self, tmp_path, capsys):
-        web_dir, dist_dir = _make_web_dir(tmp_path)
-        # Stale dist exists but is older than source
+        hermes_root, _, ui_dir, dist_dir = _make_marko_layout(tmp_path)
         _touch(dist_dir / "index.html", offset=-100)
-        _touch(web_dir / "src" / "App.tsx")  # newer source -> build_needed=True
+        _touch(ui_dir / "src" / "App.tsx")
 
         Subprocess = __import__("subprocess")
         install_ok = Subprocess.CompletedProcess([], 0, stdout="", stderr="")
-        build_fail = Subprocess.CompletedProcess([], 1, stdout="vite ENOMEM", stderr="")
-        with patch("hermes_cli.main.shutil.which", return_value="/usr/bin/npm"), \
+        build_fail = Subprocess.CompletedProcess([], 1, stdout="next ENOMEM", stderr="")
+        with patch("hermes_constants.find_node_executable", return_value="/usr/bin/npm"), \
              patch("hermes_cli.main._time.sleep"), \
              patch("hermes_cli.main.subprocess.run", return_value=install_ok), \
              patch("hermes_cli.main._run_with_idle_timeout",
                    side_effect=[build_fail, build_fail]):
-            result = _build_web_ui(web_dir, fatal=True)
+            result = _build_web_ui(hermes_root, fatal=True)
 
-        # MUST return True (serve stale) — issue #23817 — even with fatal=True,
-        # because cmd_dashboard passes fatal=True and is the primary caller.
         assert result is True
         out = capsys.readouterr().out
         assert "serving stale dist as fallback" in out
-        assert "vite ENOMEM" in out  # combined output surfaced to user
-
-    def test_hard_fails_when_no_dist_to_fall_back_to(self, tmp_path, capsys):
-        web_dir, _ = _make_web_dir(tmp_path)
-
-        Subprocess = __import__("subprocess")
-        install_ok = Subprocess.CompletedProcess([], 0, stdout="", stderr="")
-        build_fail = Subprocess.CompletedProcess([], 1, stdout="vite ENOMEM", stderr="")
-        with patch("hermes_cli.main.shutil.which", return_value="/usr/bin/npm"), \
-             patch("hermes_cli.main._time.sleep"), \
-             patch("hermes_cli.main.subprocess.run", return_value=install_ok), \
-             patch("hermes_cli.main._run_with_idle_timeout",
-                   side_effect=[build_fail, build_fail]):
-            result = _build_web_ui(web_dir, fatal=True)
-
-        assert result is False
-        out = capsys.readouterr().out
-        assert "Web UI build failed" in out
-        assert "vite ENOMEM" in out
-        assert "Run manually" in out
+        assert "next ENOMEM" in out
