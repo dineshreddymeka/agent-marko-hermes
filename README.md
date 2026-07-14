@@ -69,6 +69,7 @@ Marko is served same-origin from Hermes. Chat hits `POST /agui` in-process.
 - **Dev:** Next on `:5173` rewrites `/api/*` + `/agui` → Hermes `:9119` (browser still uses same-origin paths).
 - **Prod:** static export is mounted by Hermes — no Next Node process; still one-hop Browser → Hermes.
 - **Discovery:** Hermes Swagger at `/docs` + schema `/openapi.json`. Marko reads `/api/capabilities` (OpenAPI-derived `features` map) to know which panels/APIs exist.
+- **Full route map:** see [`docs/API_MAPPING.md`](docs/API_MAPPING.md) for every frontend↔backend path, aliases, missing routes to port from another Hermes, and an OpenAPI diff checklist.
 
 ### AG-UI + A2UI
 

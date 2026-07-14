@@ -37,6 +37,9 @@ PUBLIC_API_PATHS: frozenset[str] = frozenset({
     # liveness probe in
     # ``docs/agent-dashboard-public-url-contract.md`` (NAS side).
     "/api/status",
+    # Agent-Marko lightweight health (authRequired + LLM mode). Same
+    # sensitivity class as /api/status — no session content.
+    "/api/health",
     # Read-only config-defaults / schema feeds for the SPA's Config page.
     "/api/config/defaults",
     "/api/config/schema",
