@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { User, Sparkles } from 'lucide-react'
 import { StreamingMarkdown } from '@app/components/chat/StreamingMarkdown'
 import { ThinkingBlock } from '@app/components/chat/ThinkingBlock'
@@ -33,11 +34,28 @@ function formatFullDate(iso: string): string {
 export function MessageBubble({ message, animateEnter }: MessageBubbleProps) {
   const toolCalls = useChatStore((s) => s.toolCalls)
   const isUser = message.role === 'user'
+  const wasStreaming = useRef(Boolean(message.streaming))
+  const [settling, setSettling] = useState(false)
+
+  useEffect(() => {
+    if (wasStreaming.current && !message.streaming) {
+      setSettling(true)
+      const t = window.setTimeout(() => setSettling(false), 480)
+      return () => window.clearTimeout(t)
+    }
+    wasStreaming.current = Boolean(message.streaming)
+  }, [message.streaming])
 
   const relatedTools = Object.values(toolCalls).filter(
     (tc) => tc.messageId === message.id || message.toolName === tc.name,
   )
   const a2uiSurfaceId = resolveA2uiSurfaceRef(message.a2ui)
+  const showWorkingShell =
+    !isUser &&
+    Boolean(message.streaming) &&
+    !message.content?.trim() &&
+    !message.thinking?.trim() &&
+    relatedTools.length === 0
 
   if (message.role === 'tool' && relatedTools.length > 0) {
     return null
@@ -49,6 +67,7 @@ export function MessageBubble({ message, animateEnter }: MessageBubbleProps) {
         'mb-7 flex gap-3',
         isUser ? 'flex-row-reverse' : 'flex-row',
         animateEnter && 'motion-safe:message-enter',
+        settling && 'motion-safe:message-settle',
       )}
     >
       <div
@@ -59,7 +78,15 @@ export function MessageBubble({ message, animateEnter }: MessageBubbleProps) {
             : 'accent-chip text-white shadow-sm',
         )}
       >
-        {isUser ? <User size={14} strokeWidth={2} /> : <Sparkles size={14} strokeWidth={2} />}
+        {isUser ? (
+          <User size={14} strokeWidth={2} />
+        ) : (
+          <Sparkles
+            size={14}
+            strokeWidth={2}
+            className={cn(message.streaming && 'motion-safe:agent-sparkle')}
+          />
+        )}
       </div>
       <div className={cn('min-w-0 flex-1', isUser ? 'flex flex-col items-end' : '')}>
         <div
@@ -70,7 +97,24 @@ export function MessageBubble({ message, animateEnter }: MessageBubbleProps) {
           title={formatFullDate(message.createdAt)}
         >
           {isUser ? 'You' : 'Assistant'} · {formatTime(message.createdAt)}
+          {message.streaming && !isUser && (
+            <span className="ml-1.5 inline-flex items-center gap-1 text-accent">
+              <span className="motion-safe:text-shimmer">live</span>
+            </span>
+          )}
         </div>
+        {showWorkingShell && (
+          <div className="mb-2 max-w-3xl">
+            <p className="text-sm font-medium motion-safe:text-shimmer">
+              Working
+              <span className="motion-safe:working-dots" aria-hidden />
+            </p>
+            <div className="mt-2 flex flex-col gap-1.5" aria-hidden>
+              <div className="h-2.5 w-[min(18rem,70%)] rounded-full skeleton-shimmer opacity-70" />
+              <div className="h-2.5 w-[min(12rem,45%)] rounded-full skeleton-shimmer opacity-50" />
+            </div>
+          </div>
+        )}
         {message.thinking?.trim() && (
           <div className={cn('w-full', isUser ? 'max-w-[min(92%,36rem)]' : 'max-w-3xl')}>
             <ThinkingBlock content={message.thinking} streaming={message.streaming} />
@@ -83,6 +127,7 @@ export function MessageBubble({ message, animateEnter }: MessageBubbleProps) {
               isUser
                 ? 'inline-block max-w-[min(92%,36rem)] rounded-2xl rounded-tr-md border border-user-bubble-border bg-user-bubble px-4 py-2.5 text-user-bubble-fg shadow-sm'
                 : 'w-full max-w-3xl text-fg',
+              message.streaming && !isUser && 'streaming-response',
             )}
           >
             {isUser ? (
