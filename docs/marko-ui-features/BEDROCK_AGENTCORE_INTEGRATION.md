@@ -20,6 +20,7 @@ Related plans: [DESKTOP_APP.md](./DESKTOP_APP.md) (thin Electron shell — out o
 ## 0. Locked decisions
 
 - **AWS SDK:** boto3 `bedrock-agentcore-control` for Gateway / Targets / Runtimes / Memories; MCP tool listing against `gatewayUrl`.
+- **Connect with `gatewayUrl` first.** Operators often already have the Gateway invoke URL. Marko Connections **primary field is `gatewayUrl`** (plus `region`). Optional `gatewayId` if known. Hermes persists the URL immediately, then enriches metadata via control-plane (`get_gateway` / list+match by URL). MCP `tools/list` and opt-in rebuild use the stored `gatewayUrl` even before full metadata lands.
 - **DB matches AWS:** mirror tables use the **same field names** as GetGateway / ListGatewayTargets / CreateAgentRuntime / ListMemories / Runtime session docs (snake_case SQL columns = AWS JSON keys). Non-secret AWS payloads also stored in `raw_json` for forward-compat (**after redaction** — see secrets rule).
 - **No secrets stored locally; fetch from AWS at runtime.** Never persist AWS access keys, secret keys, session tokens, JWT/client secrets, API keys, OAuth refresh/access tokens, MCP auth headers, or credential-provider secret *material* in SQLite, `config.yaml`, `raw_json`, opt-in metadata, Marko localStorage, or the browser. Mirror tables may keep **identifiers only** (e.g. Secrets Manager `secretArn`, credential-provider type/name, `authorizerType`). When Hermes needs a secret (Gateway MCP auth, target credential providers, etc.), resolve it **just-in-time** via AWS SDK — boto3 `secretsmanager.get_secret_value` and/or AgentCore Gateway credential-provider APIs — using the process IAM chain (IRSA / instance profile / SSO). Hold material in **process memory for the request only**; never write fetched values to disk or return them on Marko REST. Sync still **redacts** any secret material that appears in control-plane payloads before upsert.
 - **Marko stays the UI; Hermes is the BFF.** No AWS credentials or secret values of any kind in the browser.
@@ -186,7 +187,8 @@ Profile config (pointers only; rows live in SQLite). **No secrets in YAML:**
 ```yaml
 agentcore:
   region: us-east-1
-  gateway_id: "..."                 # PK into agentcore_gateways
+  gateway_url: "https://...."       # primary connect input (Gateway invoke / MCP URL)
+  gateway_id: "..."                 # optional; filled after control-plane enrich
   agent_runtime_arn: "..."          # optional default runtime
   memory_id: "..."                  # optional default memory
   # NEVER: aws_access_key_id, aws_secret_access_key, session_token, client_secret, api_key
@@ -206,13 +208,21 @@ New: `hermes/hermes_cli/agentcore_gateway.py` (+ thin runtime/memory list helper
 
 | Function | SDK | Writes |
 |---|---|---|
-| `connect_gateway(gateway_id)` | `get_gateway` | `agentcore_gateways` (redacted) |
-| `sync_gateway_targets(gateway_id)` | `list_gateway_targets` (+ get/synchronize as needed) | `agentcore_gateway_targets` (redacted; keep `secretArn` pointers) |
+| `connect_gateway(gateway_url, *, region, gateway_id=None)` | Persist URL; if `gateway_id` → `get_gateway`; else `list_gateways` and match `gatewayUrl`; if no match, upsert URL-only row (`status=PENDING_ENRICH`) | `agentcore_gateways` (redacted) + config `gateway_url` |
+| `sync_gateway_targets(gateway_id)` | `list_gateway_targets` (+ get/synchronize as needed); requires resolved `gateway_id` when possible — if URL-only, MCP `tools/list` against `gateway_url` still rebuilds tool opt-ins | `agentcore_gateway_targets` (redacted; keep `secretArn` pointers) |
 | `sync_runtimes()` | `list_agent_runtimes` / get | `agentcore_runtimes` |
 | `sync_memories()` | `list_memories` | `agentcore_memories` |
-| `rebuild_opt_ins(gateway_id)` | flatten targets + MCP `tools/list` + local skills/plugins/tools | `gateway_opt_ins` (preserve `enabled`) |
+| `rebuild_opt_ins(gateway_id)` | flatten targets + MCP `tools/list` **via stored `gatewayUrl`** + local skills/plugins/tools | `gateway_opt_ins` (preserve `enabled`) |
 | `apply_opt_in(id, enabled)` | — | mirror into mcp/skills/plugins/toolsets (no secret material) |
 | `resolve_secret(secret_arn)` | `secretsmanager.get_secret_value` | **nothing** — return value in-memory for caller only |
+
+Connect algorithm (`PUT /api/gateway/connection` body: `{ region, gatewayUrl, gatewayId? }`):
+
+1. Validate `gatewayUrl` (https). Save to config + upsert `agentcore_gateways.gateway_url`.
+2. If `gatewayId` provided → `get_gateway` → merge AWS fields (must match URL when both present).
+3. Else → `list_gateways` (paginated) → find row where `gatewayUrl` equals input → set `gateway_id` / ARN / status.
+4. If control-plane unreachable or no match → keep URL row; UI shows connected-by-URL; sync still lists MCP tools from the URL.
+5. Never store secrets from the URL or headers.
 
 Sync algorithm (`POST /api/gateway/sync`):
 
@@ -230,7 +240,7 @@ Sync algorithm (`POST /api/gateway/sync`):
 | Method | Path | Behavior |
 |---|---|---|
 | GET | `/api/gateway/status` | From `agentcore_gateways` row + last sync + counts |
-| PUT | `/api/gateway/connection` | `get_gateway` → upsert gateway row + config.yaml |
+| PUT | `/api/gateway/connection` | Body `{ region, gatewayUrl, gatewayId? }` → URL-first connect + optional control-plane enrich |
 | POST | `/api/gateway/sync` | Full sync algorithm |
 | GET | `/api/gateway/opt-ins` | List opt-ins (`?type=`, `?enabled=`) |
 | PUT | `/api/gateway/opt-ins/{id}` | Toggle + mirror |
@@ -249,7 +259,7 @@ when routes are present.
 
 ### 4a. Connections Gateway section
 
-- Connect (region + gateway id) → status chip from `agentcore_gateways.status`
+- Connect (**region + gateway URL**, optional gateway id) → status chip from `agentcore_gateways.status` (or “URL connected” if pending enrich)
 - Sync → refreshes AWS mirror tables + opt-in catalog
 - **One scrollable opt-in table:** Type \| Name \| Target/Runtime \| AWS status \| Opt-in
 - Filters: All / MCP / Tools / Skills / Plugins
@@ -286,8 +296,9 @@ Kanban, Profiles, Settings.
 
 ## 7. Acceptance
 
-- [ ] Connect with region + gateway id upserts `agentcore_gateways` with AWS field names.
-- [ ] Sync fills targets / runtimes / memories mirror tables; `raw_json` retains redacted SDK bodies.
+- [ ] Connect with **gateway URL** (+ region) upserts `agentcore_gateways.gateway_url`; optional id enrich fills AWS field names.
+- [ ] Sync fills targets / runtimes / memories mirror tables when control-plane works; MCP tools still list from `gatewayUrl` if URL-only.
+- [ ] `raw_json` retains redacted SDK bodies.
 - [ ] Opt-ins appear in one Connections table; default `enabled=0`; sticky across re-sync.
 - [ ] Enabling an MCP opt-in mirrors into `mcp_servers` and shows in MCP panel.
 - [ ] Enabling a skill opt-in mirrors into skills registry and shows in Skills panel.
