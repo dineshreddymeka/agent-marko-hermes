@@ -252,9 +252,33 @@ class TestAutoTitleSession:
         db = MagicMock()
         db.get_session_title.return_value = None
 
-        with patch("agent.title_generator.generate_title", return_value=None):
+        with patch("agent.title_generator.generate_title", return_value=None), patch(
+            "agent.title_generator.heuristic_title", return_value=None
+        ):
             auto_title_session(db, "sess-1", "hi", "hello")
             db.set_session_title.assert_not_called()
+
+    def test_suffixes_title_on_unique_conflict(self):
+        db = MagicMock()
+        db.get_session_title.return_value = None
+        db.get_next_title_in_lineage.return_value = "NJ #2"
+        db.set_session_title.side_effect = [
+            ValueError("Title 'NJ' is already in use by session other"),
+            True,
+        ]
+        seen = []
+        with patch("agent.title_generator.generate_title", return_value="NJ"):
+            auto_title_session(
+                db,
+                "sess-1",
+                "nj",
+                "ok",
+                title_callback=seen.append,
+            )
+        assert db.set_session_title.call_args_list[0].args == ("sess-1", "NJ")
+        db.get_next_title_in_lineage.assert_called_once_with("NJ")
+        assert db.set_session_title.call_args_list[1].args == ("sess-1", "NJ #2")
+        assert seen == ["NJ #2"]
 
 
 class TestMaybeAutoTitle:

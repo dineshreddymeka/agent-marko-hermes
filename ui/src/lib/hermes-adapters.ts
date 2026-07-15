@@ -10,6 +10,7 @@ import type {
   Session,
 } from '@hermes/shared'
 import { apiClient } from '@app/lib/api'
+import { isPlaceholderSessionTitle } from '@app/lib/session-title'
 
 type HermesSessionRow = {
   id?: string
@@ -65,18 +66,11 @@ function contentToString(content: unknown): string {
   }
 }
 
-const PLACEHOLDER_TITLES = new Set([
-  '',
-  'new chat',
-  'untitled',
-  'untitled session',
-  'untitled chat',
-])
+import { isPlaceholderSessionTitle } from '@app/lib/session-title'
 
 function displaySessionTitle(row: HermesSessionRow): string {
   const raw = row.title != null ? String(row.title).trim() : ''
-  const isPlaceholder = !raw || PLACEHOLDER_TITLES.has(raw.toLowerCase())
-  if (!isPlaceholder) return raw
+  if (!isPlaceholderSessionTitle(raw)) return raw
   const preview = row.preview != null ? String(row.preview).trim() : ''
   if (preview) {
     const oneLine = preview.replace(/\s+/g, ' ')

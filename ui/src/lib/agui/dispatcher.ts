@@ -35,6 +35,7 @@ import { useUiStore } from '@app/stores/ui'
 import { extractA2uiSurfaceId, processA2UIMessage } from '@app/lib/a2ui/processor'
 import { executeFrontendTool, isFrontendTool } from '@app/lib/agui/frontend-tools'
 import { mergeCoworkProgress } from '@app/lib/cowork-progress'
+import { isPlaceholderSessionTitle } from '@app/lib/session-title'
 import { generateId } from '@app/lib/utils'
 import type { ChatMessage } from '@app/stores/chat'
 import type { AgentState } from '@app/types/hermes'
@@ -46,19 +47,6 @@ function isCurrentRun(eventRunId: string | null | undefined): boolean {
   const active = useChatStore.getState().runId
   if (active == null) return false
   return String(eventRunId) === active
-}
-
-const PLACEHOLDER_TITLES = new Set([
-  '',
-  'new chat',
-  'untitled',
-  'untitled session',
-  'untitled chat',
-])
-
-function isPlaceholderSessionTitle(title: string | null | undefined): boolean {
-  if (title == null) return true
-  return PLACEHOLDER_TITLES.has(String(title).trim().toLowerCase())
 }
 
 /** Client-side mirror of backend heuristic_title — keeps sidebar titled if SSE is missed. */
@@ -98,6 +86,7 @@ function ensureSessionTitleFromChat(sessionId: string | null): void {
   const firstUser = messages.find((m) => m.role === 'user' && m.content?.trim())
   if (!firstUser?.content) return
   const title = heuristicTitleFromUserMessage(firstUser.content)
+  // updateSession upserts so a missing sidebar row still gets a title.
   if (title) sessions.updateSession(sessionId, { title })
 }
 
@@ -118,7 +107,6 @@ function finalizeRunUi(chat: ReturnType<typeof useChatStore.getState>): void {
 export function dispatchAguiEvent(event: BaseEvent, sessionId: string | null): void {
   const chat = useChatStore.getState()
   const agentState = useAgentStateStore.getState()
-  const sessions = useSessionsStore.getState()
   const ui = useUiStore.getState()
 
   switch (event.type) {
@@ -413,14 +401,15 @@ export function dispatchAguiEvent(event: BaseEvent, sessionId: string | null): v
           payload.tokensUsed ?? payload.totalTokens ?? payload.promptTokens ?? 0
         const limit = payload.tokensMax ?? payload.contextLimit ?? 128_000
         chat.setContextUsage({ used, limit })
-      } else if (name === 'hermes.title') {
-        const payload = value as HermesTitlePayload
+      } else if (name === 'hermes.title' || name === HermesCustomEvents.TITLE) {
+        const payload = (value ?? {}) as HermesTitlePayload
         const targetId =
           (typeof payload.sessionId === 'string' && payload.sessionId.trim()) ||
           sessionId
         const title = typeof payload.title === 'string' ? payload.title.trim() : ''
-        if (targetId && title) {
-          sessions.updateSession(targetId, { title })
+        if (targetId && title && !isPlaceholderSessionTitle(title)) {
+          // Fresh store handle — avoid stale closure if CUSTOM arrives late.
+          useSessionsStore.getState().updateSession(targetId, { title })
         }
       } else if (name === 'hermes.skill.learned') {
         const payload = value as HermesSkillLearnedPayload

@@ -210,6 +210,24 @@ def auto_title_session(
                 title_callback(title)
             except Exception:
                 logger.debug("Auto-title callback failed", exc_info=True)
+    except ValueError:
+        # Unique constraint — try "Title #2" style lineage suffix.
+        try:
+            titled = session_db.get_next_title_in_lineage(title)
+            session_db.set_session_title(session_id, titled)
+            logger.info("Auto-generated session title (suffixed): %s", titled)
+            if title_callback is not None:
+                try:
+                    title_callback(titled)
+                except Exception:
+                    logger.debug("Auto-title callback failed", exc_info=True)
+        except Exception as e:
+            logger.warning("Failed to set auto-generated title: %s", e)
+            if title_callback is not None and title:
+                try:
+                    title_callback(title)
+                except Exception:
+                    logger.debug("Auto-title callback failed after set error", exc_info=True)
     except Exception as e:
         logger.warning("Failed to set auto-generated title: %s", e)
         # Still notify UI even if DB write failed (unique conflict, closed conn, …)

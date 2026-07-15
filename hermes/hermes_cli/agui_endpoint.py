@@ -523,8 +523,22 @@ def _run_agent_sync(
                     if needs_title:
                         quick = heuristic_title(user_text)
                         if quick:
+                            title_to_emit = quick
                             try:
                                 db.set_session_title(thread_id, quick)
+                            except ValueError:
+                                # Unique title conflict (e.g. "NJ" already taken)
+                                # — suffix with #2 / #3 so persist + UI stay in sync.
+                                try:
+                                    titled = db.get_next_title_in_lineage(quick)
+                                    db.set_session_title(thread_id, titled)
+                                    title_to_emit = titled
+                                except Exception:
+                                    _log.warning(
+                                        "Marko heuristic title persist failed for %s",
+                                        thread_id,
+                                        exc_info=True,
+                                    )
                             except Exception:
                                 _log.warning(
                                     "Marko heuristic title persist failed for %s",
@@ -536,7 +550,7 @@ def _run_agent_sync(
                                     "type": "CUSTOM",
                                     "name": "hermes.title",
                                     "value": {
-                                        "title": quick,
+                                        "title": title_to_emit,
                                         "sessionId": thread_id,
                                     },
                                 }
