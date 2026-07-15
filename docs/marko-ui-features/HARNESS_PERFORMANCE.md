@@ -7,6 +7,19 @@ durability, single-node, all state in SQLite.
 
 All line numbers refer to the current tree (`cursor/nextjs-ui-e2f3`).
 
+**Implementation status:** L1, L2, L3, C1, D2, S1, T1, T2 are **implemented
+and verified** (see §11 results below). Outstanding: L4, L5, C2, C3, C4, D1,
+D3, S2, S3, T3, T4.
+
+Measured after implementation (no-LLM environment, loopback):
+TTFE 3.3–5.5 ms (was 250 ms worst-case bridge polling), 20-run soak
+RSS 135 → 136 MB / threads 6 → 6 (no leaks), `kill -9` mid-run →
+`PRAGMA quick_check` ok + all sessions intact, warm-stamp script start
+1.4–1.6 s (was minutes with unconditional `next build`), WAL +
+`synchronous=NORMAL` confirmed on live connections, `/_next/static/**`
+served with `immutable`. Endpoint + coalescer tests: 9 passed;
+`hermes_state` suite: 41 passed.
+
 ---
 
 ## 0. Measured baseline
