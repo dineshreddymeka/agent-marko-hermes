@@ -17,7 +17,9 @@ export function MessageList({ messages, sessionId }: MessageListProps) {
   const runSessionId = useChatStore((s) => s.runSessionId)
   const toolCalls = useChatStore((s) => s.toolCalls)
   const stickToBottom = useRef(true)
-  const runAppliesToView = runSessionId != null && runSessionId === sessionId
+  const runAppliesToView =
+    Boolean(sessionId) &&
+    (runSessionId == null || runSessionId === sessionId)
 
   // Hide empty assistant placeholders (tool-only turns / empty thinking shells).
   const visible = messages.filter((m) => {

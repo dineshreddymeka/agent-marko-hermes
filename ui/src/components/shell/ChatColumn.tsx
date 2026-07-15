@@ -7,7 +7,7 @@ import { ErrorBanner } from '@app/components/chat/ErrorBanner'
 import { ApprovalCard } from '@app/components/chat/ApprovalCard'
 import { EmptyState } from '@app/components/common/EmptyState'
 import { MessageSkeletonList } from '@app/components/common/Skeleton'
-import { checkLiveRun, loadSessionMessages, startLiveMessagePoll } from '@app/lib/agui/client'
+import { checkLiveRun, isLiveRunOnSession, loadSessionMessages, startLiveMessagePoll } from '@app/lib/agui/client'
 import { useChatStore } from '@app/stores/chat'
 import { useSessionsStore } from '@app/stores/sessions'
 
@@ -32,6 +32,19 @@ function fillComposer(text: string) {
   )
 }
 
+function clearHistoricalRunUi(sessionId: string) {
+  const chat = useChatStore.getState()
+  chat.clearStreamingState()
+  chat.resetRun()
+  const msgs = chat.messagesBySession[sessionId] ?? []
+  if (msgs.some((m) => m.streaming)) {
+    chat.setMessages(
+      sessionId,
+      msgs.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
+    )
+  }
+}
+
 export function ChatColumn({ sessionId }: ChatColumnProps) {
   const pendingApproval = useChatStore((s) => s.pendingApproval)
   const messages = useChatStore((s) =>
@@ -54,23 +67,23 @@ export function ChatColumn({ sessionId }: ChatColumnProps) {
     setLoadError(null)
 
     // Drop stale working/done UI from another session when opening history.
-    // checkLiveRun below will restore status only if this session is live.
-    useChatStore.getState().clearStreamingState()
-    useChatStore.getState().resetRun()
+    // Preserve effects when this session already has an active local run.
+    if (!isLiveRunOnSession(sessionId)) {
+      useChatStore.getState().clearStreamingState()
+      useChatStore.getState().resetRun()
+    }
 
     void (async () => {
       try {
-        await loadSessionMessages(sessionId, { signal: ac.signal, stripStreaming: true })
+        await loadSessionMessages(sessionId, { signal: ac.signal })
         if (ac.signal.aborted) return
-        const live = await checkLiveRun(sessionId)
+        const live =
+          isLiveRunOnSession(sessionId) || (await checkLiveRun(sessionId))
         if (ac.signal.aborted) return
         if (live) {
           stopPoll = startLiveMessagePoll(sessionId)
-        } else {
-          // Ensure historical transcripts never keep a working/done bubble.
-          const chat = useChatStore.getState()
-          chat.clearStreamingState()
-          chat.resetRun()
+        } else if (!isLiveRunOnSession(sessionId)) {
+          clearHistoricalRunUi(sessionId)
         }
       } catch (err) {
         if (ac.signal.aborted) return

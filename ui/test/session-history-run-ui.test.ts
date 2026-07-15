@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from 'vitest'
 import { EventType } from '@ag-ui/client'
 import { dispatchAguiEvent } from '../src/lib/agui/dispatcher'
+import { isLiveRunOnSession } from '../src/lib/agui/client'
 import { useChatStore } from '../src/stores/chat'
 
 function resetChatStore() {
@@ -57,6 +58,19 @@ describe('session history run UI cleanup', () => {
     expect(state.runStage).toBeNull()
     expect(state.runStatus).toBe('idle')
     expect(state.runId).toBeNull()
+  })
+
+  test('isLiveRunOnSession is true only for matching in-flight run', () => {
+    const chat = useChatStore.getState()
+    chat.setRunSessionId('session-a')
+    chat.setRunId('run-1')
+    chat.setRunStatus('running')
+
+    expect(isLiveRunOnSession('session-a')).toBe(true)
+    expect(isLiveRunOnSession('session-b')).toBe(false)
+
+    chat.resetRun()
+    expect(isLiveRunOnSession('session-a')).toBe(false)
   })
 
   test('loadSessionMessages stripStreaming clears streaming flags on merge', async () => {

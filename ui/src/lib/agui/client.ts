@@ -29,6 +29,12 @@ export function hasInFlightRun(): boolean {
   return Boolean(state.runId || activeRunPromise)
 }
 
+/** True when the given session owns the in-flight run in this tab. */
+export function isLiveRunOnSession(sessionId: string): boolean {
+  const state = useChatStore.getState()
+  return state.runSessionId === sessionId && hasInFlightRun()
+}
+
 /**
  * Recover from stale running state left behind by interrupted reloads/streams.
  * Returns true when state was repaired.
@@ -131,12 +137,14 @@ function finishLocalRun(
   state.clearStreamingState()
   if (error) state.setError(error)
   else state.setError(null)
-  state.setRunStatus(status)
+  state.setRunStatus(status === 'idle' ? 'idle' : 'error')
+  state.setRunId(null)
   if (status === 'idle') {
-    state.setRunId(null)
-    state.clearStage()
+    state.setStage('done')
+    globalThis.setTimeout(() => {
+      useChatStore.getState().clearStage()
+    }, 1200)
   } else {
-    state.setRunId(null)
     state.setStage('error')
   }
 }

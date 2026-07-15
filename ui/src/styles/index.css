@@ -1,6 +1,76 @@
 @import 'tailwindcss';
 @import './tokens.css';
 
+/*
+ * Tailwind v4 composes motion-safe: only with @utility classes, not plain @layer
+ * utilities. Register agent animation utilities so motion-safe:* classes emit CSS.
+ */
+@utility text-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-fg-muted) 0%,
+    var(--color-accent) 50%,
+    var(--color-fg-muted) 100%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: var(--animate-shimmer);
+}
+
+@utility stage-sweep-bar {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--color-accent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: var(--animate-sweep);
+}
+
+@utility message-enter {
+  animation: var(--animate-soft-rise);
+}
+
+@utility message-settle {
+  animation: var(--animate-message-settle);
+}
+
+@utility agent-status-settle {
+  animation: var(--animate-message-settle);
+}
+
+@utility agent-chip-pulse {
+  animation: var(--animate-agent-pulse);
+}
+
+@utility agent-sparkle {
+  animation: var(--animate-agent-sparkle);
+}
+
+@utility stream-tail-reveal {
+  animation: var(--animate-stream-tail);
+}
+
+@utility skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-canvas-inset) 0%,
+    var(--color-canvas-subtle) 50%,
+    var(--color-canvas-inset) 100%
+  );
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+}
+
+@utility transition-shell {
+  transition-property: width, opacity, transform, background-color, border-color, box-shadow;
+  transition-duration: var(--duration-shell);
+  transition-timing-function: var(--ease-shell);
+}
+
 @layer base {
   *,
   *::before,
@@ -118,12 +188,6 @@
     background: color-mix(in srgb, var(--color-accent) 16%, transparent);
   }
 
-  .transition-shell {
-    transition-property: width, opacity, transform, background-color, border-color, box-shadow;
-    transition-duration: var(--duration-shell);
-    transition-timing-function: var(--ease-shell);
-  }
-
   .streaming-caret {
     display: inline-block;
     width: 2px;
@@ -159,74 +223,21 @@
     opacity: 0.55;
   }
 
-  .text-shimmer {
-    background: linear-gradient(
-      90deg,
-      var(--color-fg-muted) 0%,
-      var(--color-accent) 50%,
-      var(--color-fg-muted) 100%
-    );
-    background-size: 200% 100%;
-    background-clip: text;
-    -webkit-background-clip: text;
-    color: transparent;
-    animation: var(--animate-shimmer);
-  }
-
-  .stage-sweep-bar {
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      var(--color-accent) 50%,
-      transparent 100%
-    );
-    background-size: 200% 100%;
-    animation: var(--animate-sweep);
-  }
-
-  .message-enter {
-    animation: var(--animate-soft-rise);
-  }
-
-  .message-settle {
-    animation: var(--animate-message-settle);
-  }
-
-  .agent-status-settle {
-    animation: var(--animate-message-settle);
-  }
-
-  .agent-chip-pulse {
-    animation: var(--animate-agent-pulse);
-  }
-
-  .agent-sparkle {
-    animation: var(--animate-agent-sparkle);
-  }
-
   .working-dots::after {
     content: '';
     animation: var(--animate-working-dots);
   }
 
-  .stream-tail-reveal {
-    animation: var(--animate-stream-tail);
+  @media (prefers-reduced-motion: no-preference) {
+    .motion-safe\:working-dots::after {
+      content: '';
+      animation: var(--animate-working-dots);
+    }
   }
 
   .thinking-tail-mask {
     mask-image: linear-gradient(to right, transparent, black 1.5rem);
     -webkit-mask-image: linear-gradient(to right, transparent, black 1.5rem);
-  }
-
-  .skeleton-shimmer {
-    background: linear-gradient(
-      90deg,
-      var(--color-canvas-inset) 0%,
-      var(--color-canvas-subtle) 50%,
-      var(--color-canvas-inset) 100%
-    );
-    background-size: 200% 100%;
-    animation: var(--animate-shimmer);
   }
 
   .a2ui-artifact {
