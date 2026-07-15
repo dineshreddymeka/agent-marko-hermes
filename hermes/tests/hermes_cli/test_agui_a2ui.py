@@ -61,3 +61,48 @@ def test_extract_a2ui_messages_list():
     assert len(msgs) == 2
     assert msgs[0]["surfaceId"] == "s1"
     assert msgs[1]["component"]["id"] == "b"
+
+
+def test_extract_multiple_dynamic_forms_from_tool():
+    from tools.a2ui_render_tool import a2ui_render_tool
+
+    components = [
+        {
+            "id": "contact-form",
+            "type": "hermes:DynamicForm",
+            "props": {
+                "title": "Contact",
+                "fields": [{"name": "email", "label": "Email", "type": "email"}],
+            },
+        },
+        {
+            "id": "survey-form",
+            "type": "hermes:DynamicForm",
+            "props": {
+                "title": "Survey",
+                "fields": [{"name": "rating", "label": "Rating", "type": "number"}],
+            },
+        },
+        {
+            "id": "intake-form",
+            "type": "hermes:DynamicForm",
+            "props": {
+                "title": "App intake",
+                "fields": [{"name": "goal", "label": "Goal", "type": "textarea"}],
+            },
+        },
+    ]
+    raw = a2ui_render_tool({"components": components, "message": "Three forms ready."})
+    msgs = extract_a2ui_messages(raw)
+    assert len(msgs) == 3
+    assert all(m["surfaceId"] == msgs[0]["surfaceId"] for m in msgs)
+    assert [m["component"]["type"] for m in msgs] == [
+        "hermes:DynamicForm",
+        "hermes:DynamicForm",
+        "hermes:DynamicForm",
+    ]
+    assert [m["component"]["id"] for m in msgs] == [
+        "contact-form",
+        "survey-form",
+        "intake-form",
+    ]

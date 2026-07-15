@@ -119,6 +119,45 @@ def _a2ui_action_from_state(state: Any) -> Optional[Dict[str, Any]]:
     return action if isinstance(action, dict) else None
 
 
+def _consolidate_a2ui_payloads(
+    payloads: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Merge multiple a2ui.message payloads that share a surfaceId."""
+    by_surface: Dict[str, Dict[str, Any]] = {}
+    for raw in payloads:
+        sid = raw.get("surfaceId") or raw.get("surface_id")
+        if not isinstance(sid, str) or not sid.strip():
+            continue
+        sid = sid.strip()
+        component = raw.get("component")
+        if sid not in by_surface:
+            entry: Dict[str, Any] = {
+                "surfaceId": sid,
+                "components": [],
+                "complete": bool(raw.get("complete", True)),
+            }
+            data = raw.get("data")
+            if isinstance(data, dict) and data:
+                entry["data"] = data
+            by_surface[sid] = entry
+        entry = by_surface[sid]
+        if isinstance(component, dict):
+            comps = entry["components"]
+            cid = component.get("id")
+            replaced = False
+            if isinstance(cid, str) and cid.strip():
+                for idx, existing in enumerate(comps):
+                    if existing.get("id") == cid:
+                        comps[idx] = component
+                        replaced = True
+                        break
+            if not replaced:
+                comps.append(component)
+        if raw.get("complete"):
+            entry["complete"] = True
+    return list(by_surface.values())
+
+
 def _persist_a2ui(db: Any, session_id: str, a2ui_payload: Dict[str, Any]) -> None:
     """Attach A2UI JSON to the latest assistant message in the session."""
     try:
@@ -126,14 +165,29 @@ def _persist_a2ui(db: Any, session_id: str, a2ui_payload: Dict[str, Any]) -> Non
     except Exception:
         return
     target_id = None
+    existing_a2ui: Optional[Dict[str, Any]] = None
     for row in reversed(rows):
         if (row.get("role") or "").lower() == "assistant":
             target_id = row.get("id")
+            raw = row.get("a2ui")
+            if isinstance(raw, str) and raw.strip():
+                try:
+                    parsed = json.loads(raw)
+                    existing_a2ui = parsed if isinstance(parsed, dict) else None
+                except Exception:
+                    existing_a2ui = None
+            elif isinstance(raw, dict):
+                existing_a2ui = raw
             break
     if target_id is None:
         return
+    merged = a2ui_payload
+    if existing_a2ui:
+        merged_list = _consolidate_a2ui_payloads([existing_a2ui, a2ui_payload])
+        if merged_list:
+            merged = merged_list[0]
     try:
-        encoded = json.dumps(a2ui_payload, ensure_ascii=False)
+        encoded = json.dumps(merged, ensure_ascii=False)
     except Exception:
         return
     try:
@@ -375,9 +429,16 @@ def _run_agent_sync(
                     "name/label/type/required/options, submitLabel). "
                     "Never paste HTML, CSS, or React form source code into the chat — "
                     "Marko cannot render raw HTML as a live form. "
+                    "When the user asks for several form types at once (web/contact, survey, "
+                    "document intake, app intake, etc.), says \"all of them\", \"each one\", "
+                    "\"in parallel\", or lists multiple options, call a2ui_render ONCE with "
+                    "a components array of hermes:DynamicForm entries — one per requested "
+                    "form — and render ALL of them in that single tool call. Do not pick "
+                    "only one form unless the user asked for one. Do not describe forms in "
+                    "text instead of rendering them. "
                     "Use hermes:DocumentRequestForm for document/PPT requests and "
                     "hermes:CronSchedulePicker for schedules. Keep a short text reply "
-                    "and let the interactive surface collect the input."
+                    "and let the interactive surfaces collect the input."
                 ),
                 stream_delta_callback=on_stream_delta,
                 reasoning_callback=on_reasoning_delta,
@@ -430,7 +491,7 @@ def _run_agent_sync(
             if started_text:
                 emit({"type": "TEXT_MESSAGE_END", "messageId": message_id})
 
-            for payload in emitted_a2ui:
+            for payload in _consolidate_a2ui_payloads(emitted_a2ui):
                 _persist_a2ui(db, thread_id, payload)
 
             # Auto-summarize session title after early replies. Marko UI updates

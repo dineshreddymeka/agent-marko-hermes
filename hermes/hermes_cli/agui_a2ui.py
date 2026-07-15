@@ -22,16 +22,12 @@ def _as_dict(value: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _normalize_message(raw: Any, *, default_surface: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    data = _as_dict(raw)
-    if data is None:
-        return None
-
-    # Accept either the wire value shape or a nested {a2ui: {...}}.
-    if "component" not in data and isinstance(data.get("a2ui"), dict):
-        data = data["a2ui"]
-
-    component = data.get("component")
+def _normalize_component_entry(
+    component: Any,
+    *,
+    data: Dict[str, Any],
+    default_surface: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
     if not isinstance(component, dict):
         return None
     ctype = component.get("type")
@@ -67,6 +63,42 @@ def _normalize_message(raw: Any, *, default_surface: Optional[str] = None) -> Op
     return payload
 
 
+def _normalize_message(raw: Any, *, default_surface: Optional[str] = None) -> List[Dict[str, Any]]:
+    data = _as_dict(raw)
+    if data is None:
+        return []
+
+    # Accept either the wire value shape or a nested {a2ui: {...}}.
+    if "component" not in data and "components" not in data and isinstance(data.get("a2ui"), dict):
+        data = data["a2ui"]
+
+    surface_id = data.get("surfaceId") or data.get("surface_id") or default_surface
+    if isinstance(surface_id, str) and surface_id.strip():
+        default_surface = surface_id.strip()
+
+    components = data.get("components")
+    if isinstance(components, list) and components:
+        out: List[Dict[str, Any]] = []
+        for item in components:
+            normalized = _normalize_component_entry(
+                item, data=data, default_surface=default_surface
+            )
+            if normalized:
+                default_surface = normalized["surfaceId"]
+                out.append(normalized)
+        if out:
+            return out
+
+    component = data.get("component")
+    if isinstance(component, dict):
+        normalized = _normalize_component_entry(
+            component, data=data, default_surface=default_surface
+        )
+        if normalized:
+            return [normalized]
+    return []
+
+
 def extract_a2ui_messages(result: Any) -> List[Dict[str, Any]]:
     """Pull zero-or-more A2UI message payloads from a tool result."""
     data = _as_dict(result)
@@ -78,21 +110,18 @@ def extract_a2ui_messages(result: Any) -> List[Dict[str, Any]]:
 
     if isinstance(data.get("a2uiMessages"), list):
         for item in data["a2uiMessages"]:
-            normalized = _normalize_message(item, default_surface=default_surface)
-            if normalized:
+            for normalized in _normalize_message(item, default_surface=default_surface):
                 default_surface = normalized["surfaceId"]
                 messages.append(normalized)
         return messages
 
     if "a2ui" in data:
-        normalized = _normalize_message(data.get("a2ui"))
-        if normalized:
+        for normalized in _normalize_message(data.get("a2ui")):
             messages.append(normalized)
         return messages
 
     # Bare a2ui.message value
-    normalized = _normalize_message(data)
-    if normalized:
+    for normalized in _normalize_message(data):
         messages.append(normalized)
     return messages
 

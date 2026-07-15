@@ -79,8 +79,6 @@ def build_a2ui_message(
         return payload
 
     if components:
-        # First component is primary; extras are emitted as separate messages
-        # by the caller. Keep one component here for tool-result convenience.
         first = _normalize_component(components[0])
         if first is None:
             raise ValueError("components[0] must include a string type")
@@ -202,7 +200,10 @@ A2UI_RENDER_SCHEMA = {
         "the Marko UI does not execute HTML from chat messages. "
         "For a ready-to-fill form use hermes:DynamicForm with title + fields "
         "[{name,label,type,required,options?}]. Types: text, email, textarea, select, "
-        "checkbox, number. For document/PPT requests use hermes:DocumentRequestForm. "
+        "checkbox, number. When the user wants multiple forms (contact + survey + intake, "
+        "or says \"all of them\"), pass components: [{id,type,props}, ...] with one "
+        "hermes:DynamicForm per requested form — all render stacked on one surface. "
+        "For document/PPT requests use hermes:DocumentRequestForm. "
         "For cron scheduling use hermes:CronSchedulePicker. Also supports "
         "hermes:FormRequestForm, hermes:MemoryEntryEditor, hermes:SkillCard, "
         "hermes:FileDiff, and standard widgets (TextField, Select, Button, Card)."
@@ -243,7 +244,11 @@ A2UI_RENDER_SCHEMA = {
             },
             "components": {
                 "type": "array",
-                "description": "Optional list of components for one surface.",
+                "description": (
+                    "Stack multiple components on one surface. Use for multiple "
+                    "hermes:DynamicForm widgets when the user asks for several "
+                    "form types in one turn."
+                ),
                 "items": {"type": "object"},
             },
         },

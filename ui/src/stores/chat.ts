@@ -288,9 +288,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       if (!targetId) return s
 
       const list = s.messagesBySession[sessionId] ?? []
-      const next = list.map((m) =>
-        m.id === targetId ? { ...m, a2ui: surfaceId } : m,
-      )
+      const next = list.map((m) => {
+        if (m.id !== targetId) return m
+        const existing = resolveA2uiSurfaceRef(m.a2ui)
+        if (existing === surfaceId) return m
+        return { ...m, a2ui: surfaceId }
+      })
       return {
         messagesBySession: { ...s.messagesBySession, [sessionId]: next },
       }
