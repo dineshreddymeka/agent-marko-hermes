@@ -287,7 +287,23 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       }
       if (!targetId) return s
 
-      const list = s.messagesBySession[sessionId] ?? []
+      let list = s.messagesBySession[sessionId] ?? []
+      if (!list.some((m) => m.id === targetId)) {
+        // TEXT_MESSAGE_START can be skipped (stale run guard); ensure a bubble
+        // exists so MessageBubble mounts A2UISurface for this surface id.
+        list = [
+          ...list,
+          {
+            id: targetId,
+            sessionId,
+            runId: s.runId,
+            role: 'assistant' as const,
+            content: '',
+            streaming: false,
+            createdAt: new Date().toISOString(),
+          },
+        ]
+      }
       const next = list.map((m) => {
         if (m.id !== targetId) return m
         const existing = resolveA2uiSurfaceRef(m.a2ui)

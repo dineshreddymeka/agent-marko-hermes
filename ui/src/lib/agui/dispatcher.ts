@@ -274,6 +274,21 @@ export function dispatchAguiEvent(event: BaseEvent, sessionId: string | null): v
           const msgs = chat.messagesBySession[sessionId] ?? []
           messageId = [...msgs].reverse().find((m) => m.role === 'assistant')?.id
         }
+        if (messageId && sessionId) {
+          const live = useChatStore.getState()
+          const msgs = live.messagesBySession[sessionId] ?? []
+          if (!msgs.some((m) => m.id === messageId)) {
+            live.addMessage(sessionId, {
+              id: messageId,
+              sessionId,
+              runId: e.runId != null ? String(e.runId) : live.runId,
+              role: 'assistant',
+              content: '',
+              streaming: true,
+              createdAt: new Date().toISOString(),
+            })
+          }
+        }
         chat.upsertToolCall(e.toolCallId, {
           id: e.toolCallId,
           name: e.toolCallName,
@@ -425,11 +440,22 @@ export function dispatchAguiEvent(event: BaseEvent, sessionId: string | null): v
           description: payload.jobName,
           variant: 'attention',
         })
-      } else if (name === 'a2ui.message') {
+      } else if (name === 'a2ui.message' || name === HermesCustomEvents.A2UI_MESSAGE) {
         processA2UIMessage(value, sessionId)
         const surfaceId = extractA2uiSurfaceId(value)
         if (surfaceId && sessionId) {
-          chat.attachA2uiSurface(sessionId, surfaceId)
+          const payload = (value ?? {}) as { parentMessageId?: unknown }
+          let parentId =
+            typeof payload.parentMessageId === 'string' && payload.parentMessageId.trim()
+              ? payload.parentMessageId.trim()
+              : undefined
+          if (!parentId) {
+            const tc = [...Object.values(useChatStore.getState().toolCalls)]
+              .reverse()
+              .find((t) => t.name === 'a2ui_render' && t.messageId)
+            parentId = tc?.messageId
+          }
+          useChatStore.getState().attachA2uiSurface(sessionId, surfaceId, parentId)
         }
       } else if (name === 'hermes.approval.required') {
         const payload = value as HermesApprovalRequiredPayload

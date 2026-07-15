@@ -14,8 +14,15 @@ interface A2UISurfaceProps {
   surfaceId: string
 }
 
+function surfaceSnapshot(surfaceId: string): string {
+  const surface = getSurface(surfaceId)
+  if (!surface) return 'pending'
+  const ids = surface.components.map((c) => c.id).join(',')
+  return `${surface.complete}:${surface.components.length}:${ids}`
+}
+
 export function A2UISurface({ surfaceId }: A2UISurfaceProps) {
-  useSyncExternalStore(subscribeA2UI, () => getSurface(surfaceId)?.complete ?? false)
+  useSyncExternalStore(subscribeA2UI, () => surfaceSnapshot(surfaceId))
   const surface = getSurface(surfaceId)
 
   if (!surface) {

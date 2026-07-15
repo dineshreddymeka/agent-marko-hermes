@@ -389,11 +389,15 @@ def _run_agent_sync(
             }
         )
         for a2ui_payload in extract_a2ui_messages(result):
+            wire_value = dict(a2ui_payload)
+            # Parent assistant bubble may not exist yet on the client; include
+            # parentMessageId so attachA2uiSurface can bind reliably.
+            wire_value["parentMessageId"] = message_id
             emit(
                 {
                     "type": "CUSTOM",
                     "name": "a2ui.message",
-                    "value": a2ui_payload,
+                    "value": wire_value,
                 }
             )
             emitted_a2ui.append(a2ui_payload)

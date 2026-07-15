@@ -310,6 +310,34 @@ describe('agui dispatcher Phase 4 events', () => {
     expect(msg?.a2ui).toBe('doc-form-test')
   })
 
+  test('a2ui.message with a2ui_render creates assistant bubble when missing', () => {
+    dispatchAguiEvent(
+      {
+        type: EventType.CUSTOM,
+        name: 'a2ui.message',
+        value: {
+          surfaceId: 'dynamic-form-1',
+          parentMessageId: 'asst-missing',
+          component: {
+            id: 'contact',
+            type: 'hermes:DynamicForm',
+            props: {
+              title: 'Contact',
+              fields: [{ name: 'email', label: 'Email', type: 'email' }],
+            },
+          },
+          complete: true,
+        },
+      } as never,
+      's1',
+    )
+
+    const msgs = useChatStore.getState().messagesBySession.s1 ?? []
+    expect(msgs).toHaveLength(1)
+    expect(msgs[0]?.id).toBe('asst-missing')
+    expect(msgs[0]?.a2ui).toBe('dynamic-form-1')
+  })
+
   test('hermes.cowork.progress attaches lines to delegate_to_cowork tool card', () => {
     useChatStore.getState().upsertToolCall('tc-cowork', {
       id: 'tc-cowork',

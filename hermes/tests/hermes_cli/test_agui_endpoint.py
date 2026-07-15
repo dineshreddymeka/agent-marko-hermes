@@ -209,6 +209,7 @@ def test_agui_emits_a2ui_custom_from_tool_result(client):
     assert custom["name"] == "a2ui.message"
     assert custom["value"]["surfaceId"] == "doc-1"
     assert custom["value"]["component"]["type"] == "hermes:DocumentRequestForm"
+    assert custom["value"].get("parentMessageId")
     assert "RUN_FINISHED" in types
 
 
