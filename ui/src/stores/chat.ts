@@ -163,10 +163,15 @@ function scheduleFlush(
       set((s) => {
         const messagesBySession = { ...s.messagesBySession }
         for (const [sessionId, messages] of Object.entries(messagesBySession)) {
-          messagesBySession[sessionId] = messages.map((m) => {
+          // Preserve array identity for untouched sessions: this flush runs
+          // per animation frame, and replacing every array forces a full
+          // message-list re-render for every open session on every frame.
+          let changed = false
+          const next = messages.map((m) => {
             const contentDelta = contentUpdates[m.id]
             const thinkingDelta = thinkingUpdates[m.id]
             if (!contentDelta && !thinkingDelta) return m
+            changed = true
             return {
               ...m,
               content: contentDelta ? m.content + contentDelta : m.content,
@@ -174,6 +179,7 @@ function scheduleFlush(
               streaming: true,
             }
           })
+          if (changed) messagesBySession[sessionId] = next
         }
         return { messagesBySession, streamingBuffer: nextBuffer }
       })
@@ -204,8 +210,10 @@ function flushBufferKey(
       const messagesBySession = { ...s.messagesBySession }
       const messageId = isThinkingBufferKey(key) ? thinkingMessageId(key) : key
       for (const [sessionId, messages] of Object.entries(messagesBySession)) {
-        messagesBySession[sessionId] = messages.map((m) => {
+        let changed = false
+        const next = messages.map((m) => {
           if (m.id !== messageId) return m
+          changed = true
           if (opts.field === 'thinking') {
             return {
               ...m,
@@ -219,6 +227,7 @@ function flushBufferKey(
             streaming: opts.streaming,
           }
         })
+        if (changed) messagesBySession[sessionId] = next
       }
       const streamingBuffer = { ...s.streamingBuffer }
       delete streamingBuffer[key]
@@ -229,9 +238,13 @@ function flushBufferKey(
     set((s) => {
       const messagesBySession = { ...s.messagesBySession }
       for (const [sessionId, messages] of Object.entries(messagesBySession)) {
-        messagesBySession[sessionId] = messages.map((m) =>
-          m.id === messageId ? { ...m, streaming: false } : m,
-        )
+        let changed = false
+        const next = messages.map((m) => {
+          if (m.id !== messageId || m.streaming === false) return m
+          changed = true
+          return { ...m, streaming: false }
+        })
+        if (changed) messagesBySession[sessionId] = next
       }
       return { messagesBySession }
     })
