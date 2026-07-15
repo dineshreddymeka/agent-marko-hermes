@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { User, Sparkles } from 'lucide-react'
 import { StreamingMarkdown } from '@app/components/chat/StreamingMarkdown'
 import { ThinkingBlock } from '@app/components/chat/ThinkingBlock'
@@ -31,7 +31,13 @@ function formatFullDate(iso: string): string {
   }
 }
 
-export function MessageBubble({ message, animateEnter }: MessageBubbleProps) {
+// Memoized: during streaming the store commits one frame per rAF, replacing
+// only the live message's object identity. memo() keeps every settled bubble
+// (markdown, KaTeX, highlighted code) from re-rendering 60×/s.
+export const MessageBubble = memo(function MessageBubble({
+  message,
+  animateEnter,
+}: MessageBubbleProps) {
   const toolCalls = useChatStore((s) => s.toolCalls)
   const isUser = message.role === 'user'
   const wasStreaming = useRef(Boolean(message.streaming))
@@ -150,4 +156,4 @@ export function MessageBubble({ message, animateEnter }: MessageBubbleProps) {
       </div>
     </div>
   )
-}
+})
