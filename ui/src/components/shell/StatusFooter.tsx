@@ -61,6 +61,8 @@ export function StatusFooter() {
   useEffect(() => {
     let cancelled = false
     const tick = async () => {
+      // No health polling from hidden tabs.
+      if (document.visibilityState !== 'visible') return
       try {
         const res = await fetch('/api/health', {
           credentials: 'include',
@@ -75,9 +77,14 @@ export function StatusFooter() {
     }
     void tick()
     const id = window.setInterval(() => void tick(), 15_000)
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void tick()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
     return () => {
       cancelled = true
       window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [])
 
