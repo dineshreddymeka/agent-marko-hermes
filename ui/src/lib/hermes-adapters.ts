@@ -66,8 +66,6 @@ function contentToString(content: unknown): string {
   }
 }
 
-import { isPlaceholderSessionTitle } from '@app/lib/session-title'
-
 function displaySessionTitle(row: HermesSessionRow): string {
   const raw = row.title != null ? String(row.title).trim() : ''
   if (!isPlaceholderSessionTitle(raw)) return raw
