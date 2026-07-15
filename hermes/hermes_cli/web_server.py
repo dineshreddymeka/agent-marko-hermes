@@ -161,6 +161,23 @@ def _warm_gateway_module() -> None:
         pass
 
 
+def _warm_agent_stack() -> None:
+    """Preload the agent stack so the first /agui run skips the cold import.
+
+    ``import run_agent`` costs ~0.6 s warm (worse cold) and +12 MB RSS; the
+    module cache is process-wide, so paying it here — in an executor thread
+    while the socket is already accepting — makes the first user turn as
+    fast as every other turn.
+    """
+    try:
+        import run_agent  # noqa: F401
+        import tools.a2ui_render_tool  # noqa: F401
+        from agent import title_generator  # noqa: F401
+        from hermes_cli import marko_session  # noqa: F401
+    except Exception:
+        _log.debug("Agent stack preload failed (first /agui run pays the import)", exc_info=True)
+
+
 def _resolve_restart_drain_timeout() -> float:
     try:
         from hermes_cli.gateway import _get_restart_drain_timeout
@@ -188,6 +205,7 @@ async def _lifespan(app: "FastAPI"):
     # Running in an executor means the cost is paid in a worker thread while
     # the server socket is already open and accepting probes.
     asyncio.get_event_loop().run_in_executor(None, _warm_gateway_module)
+    asyncio.get_event_loop().run_in_executor(None, _warm_agent_stack)
 
     # Index skills/MCP into state.db on first boot (empty tables).
     try:
@@ -16263,12 +16281,28 @@ def mount_spa(application: FastAPI):
 
     # Vite builds use /assets; Next static export uses /_next. Mount whichever exist.
     # Unknown paths still fall through to FileResponse under WEB_DIST below.
+
+    class _HashedStaticFiles(StaticFiles):
+        """StaticFiles that marks content-hashed build output immutable.
+
+        ``/_next/static/**`` filenames embed a content hash (Next build), so
+        browsers can cache them for a year and skip the per-asset
+        revalidation round-trip on every page load. Non-hashed paths keep
+        the default validate-on-request behavior.
+        """
+
+        async def get_response(self, path: str, scope):  # type: ignore[override]
+            response = await super().get_response(path, scope)
+            if response.status_code == 200 and path.startswith("static/"):
+                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            return response
+
     _assets_dir = WEB_DIST / "assets"
     if _assets_dir.is_dir():
         application.mount("/assets", StaticFiles(directory=_assets_dir), name="assets")
     _next_dir = WEB_DIST / "_next"
     if _next_dir.is_dir():
-        application.mount("/_next", StaticFiles(directory=_next_dir), name="next_static")
+        application.mount("/_next", _HashedStaticFiles(directory=_next_dir), name="next_static")
 
     @application.get("/{full_path:path}")
     async def serve_spa(full_path: str, request: Request):
