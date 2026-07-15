@@ -33,6 +33,53 @@ _TITLE_PROMPT_PINNED_LANGUAGE = (
     "Return ONLY the title text, nothing else. No quotes, no punctuation at the end, no prefixes."
 )
 
+_PLACEHOLDER_TITLES = frozenset(
+    {
+        "",
+        "new chat",
+        "untitled",
+        "untitled session",
+        "untitled chat",
+    }
+)
+
+
+def is_placeholder_title(title: Optional[str]) -> bool:
+    if title is None:
+        return True
+    return str(title).strip().lower() in _PLACEHOLDER_TITLES
+
+
+def heuristic_title(user_message: str, max_words: int = 7, max_len: int = 64) -> Optional[str]:
+    """Derive a readable title from the first user message when LLM is unavailable.
+
+    Keeps Marko/chat sessions from staying 'Untitled' in offline / no-key setups.
+    """
+    if not user_message or not str(user_message).strip():
+        return None
+    text = " ".join(str(user_message).strip().split())
+    # Drop common chat prefixes
+    for prefix in ("please ", "can you ", "could you ", "hey ", "hi ", "hello "):
+        if text.lower().startswith(prefix):
+            text = text[len(prefix) :]
+            break
+    words = text.split()
+    if not words:
+        return None
+    # Short tokens / acronyms ("nj", "nyc") → uppercase
+    if len(words) == 1 and len(words[0]) <= 4 and words[0].isalpha():
+        return words[0].upper()
+    clipped = " ".join(words[:max_words])
+    if len(words) > max_words or len(clipped) > max_len:
+        clipped = clipped[: max_len - 1].rstrip(".,;:!? ") + "…"
+    else:
+        clipped = clipped.rstrip(".,;:!? ")
+    # Title-case lightly without wrecking acronyms
+    if clipped and clipped[0].islower():
+        clipped = clipped[0].upper() + clipped[1:]
+    return clipped or None
+
+
 
 def _title_language() -> str:
     """Return configured title language, or empty string to match the user."""
@@ -140,7 +187,7 @@ def auto_title_session(
     # Check if title already exists (user may have set one via /title before first response)
     try:
         existing = session_db.get_session_title(session_id)
-        if existing:
+        if existing and not is_placeholder_title(existing):
             return
     except Exception:
         return
@@ -149,18 +196,46 @@ def auto_title_session(
         user_message, assistant_response, failure_callback=failure_callback, main_runtime=main_runtime
     )
     if not title:
+        title = heuristic_title(user_message)
+        if title:
+            logger.info("Using heuristic session title (LLM unavailable): %s", title)
+    if not title:
         return
 
     try:
         session_db.set_session_title(session_id, title)
-        logger.debug("Auto-generated session title: %s", title)
+        logger.info("Auto-generated session title: %s", title)
         if title_callback is not None:
             try:
                 title_callback(title)
             except Exception:
                 logger.debug("Auto-title callback failed", exc_info=True)
+    except ValueError:
+        # Unique constraint — try "Title #2" style lineage suffix.
+        try:
+            titled = session_db.get_next_title_in_lineage(title)
+            session_db.set_session_title(session_id, titled)
+            logger.info("Auto-generated session title (suffixed): %s", titled)
+            if title_callback is not None:
+                try:
+                    title_callback(titled)
+                except Exception:
+                    logger.debug("Auto-title callback failed", exc_info=True)
+        except Exception as e:
+            logger.warning("Failed to set auto-generated title: %s", e)
+            if title_callback is not None and title:
+                try:
+                    title_callback(title)
+                except Exception:
+                    logger.debug("Auto-title callback failed after set error", exc_info=True)
     except Exception as e:
-        logger.debug("Failed to set auto-generated title: %s", e)
+        logger.warning("Failed to set auto-generated title: %s", e)
+        # Still notify UI even if DB write failed (unique conflict, closed conn, …)
+        if title_callback is not None and title:
+            try:
+                title_callback(title)
+            except Exception:
+                logger.debug("Auto-title callback failed after set error", exc_info=True)
 
 
 def maybe_auto_title(

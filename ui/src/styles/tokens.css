@@ -1,85 +1,167 @@
-/* Primer design tokens — dark (default), dim, light via data-theme */
+/* Modern smart color system — graphite canvas + teal/cyan accent (no purple) */
 
 :root,
 [data-theme='dark'] {
-  --hermes-canvas: #0d1117;
-  --hermes-canvas-subtle: #161b22;
-  --hermes-canvas-inset: #010409;
-  --hermes-border: #30363d;
-  --hermes-border-muted: #21262d;
-  --hermes-fg: #e6edf3;
-  --hermes-fg-muted: #8b949e;
-  --hermes-fg-subtle: #6e7681;
-  --hermes-accent: #2f81f7;
-  --hermes-accent-emphasis: #388bfd;
-  --hermes-accent-muted: #388bfd26;
-  --hermes-accent-fg: #ffffff;
-  --hermes-success: #3fb950;
-  --hermes-danger: #f85149;
-  --hermes-attention: #d29922;
-  --hermes-rail: #010409;
-  --hermes-shadow: 0 8px 24px #01040966;
-  --hermes-user-bubble: #2f81f7;
-  --hermes-user-bubble-fg: #ffffff;
-  --hermes-user-bubble-border: transparent;
-  --hermes-assistant-bubble: #161b22;
-  --hermes-assistant-bubble-border: #21262d;
-  --hermes-card-shadow: none;
-  --hermes-gradient-accent: linear-gradient(90deg, var(--hermes-accent) 0%, transparent 100%);
+  --hermes-canvas: #070a0e;
+  --hermes-canvas-subtle: #0e141c;
+  --hermes-canvas-inset: #05070a;
+  --hermes-border: #1e2a38;
+  --hermes-border-muted: #15202c;
+  --hermes-fg: #eef3f8;
+  --hermes-fg-muted: #8fa0b4;
+  --hermes-fg-subtle: #5f7086;
+  /* Smart accent: electric teal → sky */
+  --hermes-accent: #14b8a6;
+  --hermes-accent-emphasis: #2dd4bf;
+  --hermes-accent-muted: #14b8a61f;
+  --hermes-accent-fg: #041016;
+  --hermes-success: #34d399;
+  --hermes-danger: #fb7185;
+  --hermes-attention: #fbbf24;
+  --hermes-info: #38bdf8;
+  /* File-kind hues */
+  --hermes-file-code: #38bdf8;
+  --hermes-file-script: #fbbf24;
+  --hermes-file-data: #34d399;
+  --hermes-file-doc: #94a3b8;
+  --hermes-file-style: #2dd4bf;
+  --hermes-file-markup: #fb7185;
+  --hermes-file-image: #14b8a6;
+  --hermes-file-config: #f59e0b;
+  --hermes-file-folder: #7dd3fc;
+  --hermes-rail: #05070a;
+  --hermes-shadow: 0 18px 48px #00000066;
+  --hermes-user-bubble: #0f2a2a;
+  --hermes-user-bubble-fg: #e6fffa;
+  --hermes-user-bubble-border: #1a4a4a;
+  --hermes-assistant-bubble: transparent;
+  --hermes-assistant-bubble-border: transparent;
+  --hermes-card-shadow: 0 1px 0 #ffffff0a;
+  --hermes-composer-bg: color-mix(in srgb, #0e141c 82%, transparent);
+  --hermes-header-bg: color-mix(in srgb, #070a0e 78%, transparent);
+  --hermes-feather: linear-gradient(
+    to top,
+    var(--hermes-canvas) 12%,
+    color-mix(in srgb, var(--hermes-canvas) 55%, transparent) 55%,
+    transparent
+  );
+  --hermes-welcome-glow:
+    radial-gradient(55% 45% at 50% -5%, #14b8a628 0%, transparent 68%),
+    radial-gradient(40% 35% at 85% 10%, #38bdf814 0%, transparent 60%),
+    radial-gradient(35% 30% at 12% 20%, #2dd4bf10 0%, transparent 55%);
+  --hermes-gradient-accent: linear-gradient(135deg, #0d9488 0%, #14b8a6 45%, #38bdf8 100%);
+  --hermes-canvas-atmosphere:
+    radial-gradient(120% 80% at 50% -20%, #14b8a612 0%, transparent 55%),
+    radial-gradient(80% 60% at 100% 0%, #38bdf80a 0%, transparent 50%),
+    linear-gradient(180deg, #070a0e 0%, #0a1018 100%);
+  --hermes-rail-glow: linear-gradient(180deg, #14b8a614 0%, transparent 28%);
+  --hermes-selection: #14b8a633;
 }
 
 [data-theme='dim'] {
-  --hermes-canvas: #1c2128;
-  --hermes-canvas-subtle: #22272e;
-  --hermes-canvas-inset: #141820;
-  --hermes-border: #373e47;
-  --hermes-border-muted: #2d333b;
-  --hermes-fg: #adbac7;
-  --hermes-fg-muted: #768390;
-  --hermes-fg-subtle: #636e7b;
-  --hermes-accent: #539bf5;
-  --hermes-accent-emphasis: #6cb6ff;
-  --hermes-accent-muted: #539bf526;
-  --hermes-accent-fg: #ffffff;
-  --hermes-success: #57ab5a;
-  --hermes-danger: #e5534b;
-  --hermes-attention: #c69026;
-  --hermes-rail: #141820;
-  --hermes-shadow: 0 8px 24px #14182066;
-  --hermes-user-bubble: #539bf5;
-  --hermes-user-bubble-fg: #ffffff;
-  --hermes-user-bubble-border: transparent;
-  --hermes-assistant-bubble: #22272e;
-  --hermes-assistant-bubble-border: #2d333b;
-  --hermes-card-shadow: none;
-  --hermes-gradient-accent: linear-gradient(90deg, var(--hermes-accent) 0%, transparent 100%);
+  --hermes-canvas: #111820;
+  --hermes-canvas-subtle: #18212c;
+  --hermes-canvas-inset: #0c1218;
+  --hermes-border: #2a3848;
+  --hermes-border-muted: #1f2a38;
+  --hermes-fg: #e2eaf3;
+  --hermes-fg-muted: #8b9aaf;
+  --hermes-fg-subtle: #66788f;
+  --hermes-accent: #2dd4bf;
+  --hermes-accent-emphasis: #5eead4;
+  --hermes-accent-muted: #2dd4bf22;
+  --hermes-accent-fg: #042f2e;
+  --hermes-success: #4ade80;
+  --hermes-danger: #fb7185;
+  --hermes-attention: #fcd34d;
+  --hermes-info: #7dd3fc;
+  --hermes-file-code: #7dd3fc;
+  --hermes-file-script: #fcd34d;
+  --hermes-file-data: #4ade80;
+  --hermes-file-doc: #a8b3c4;
+  --hermes-file-style: #5eead4;
+  --hermes-file-markup: #fb7185;
+  --hermes-file-image: #2dd4bf;
+  --hermes-file-config: #fbbf24;
+  --hermes-file-folder: #7dd3fc;
+  --hermes-rail: #0c1218;
+  --hermes-shadow: 0 16px 40px #00000055;
+  --hermes-user-bubble: #134e4a;
+  --hermes-user-bubble-fg: #ecfdf5;
+  --hermes-user-bubble-border: #2a6f6a;
+  --hermes-assistant-bubble: transparent;
+  --hermes-assistant-bubble-border: transparent;
+  --hermes-card-shadow: 0 1px 0 #ffffff08;
+  --hermes-composer-bg: color-mix(in srgb, #18212c 86%, transparent);
+  --hermes-header-bg: color-mix(in srgb, #111820 82%, transparent);
+  --hermes-feather: linear-gradient(
+    to top,
+    var(--hermes-canvas) 12%,
+    color-mix(in srgb, var(--hermes-canvas) 55%, transparent) 55%,
+    transparent
+  );
+  --hermes-welcome-glow:
+    radial-gradient(55% 45% at 50% -5%, #2dd4bf22 0%, transparent 68%),
+    radial-gradient(40% 35% at 85% 10%, #38bdf812 0%, transparent 60%);
+  --hermes-gradient-accent: linear-gradient(135deg, #14b8a6 0%, #2dd4bf 50%, #38bdf8 100%);
+  --hermes-canvas-atmosphere:
+    radial-gradient(120% 80% at 50% -20%, #2dd4bf12 0%, transparent 55%),
+    linear-gradient(180deg, #111820 0%, #141c26 100%);
+  --hermes-rail-glow: linear-gradient(180deg, #2dd4bf12 0%, transparent 28%);
+  --hermes-selection: #2dd4bf33;
 }
 
 [data-theme='light'] {
-  --hermes-canvas: #f4f6f9;
+  --hermes-canvas: #f4f7f9;
   --hermes-canvas-subtle: #ffffff;
-  --hermes-canvas-inset: #eef1f5;
-  --hermes-border: #c8d0da;
-  --hermes-border-muted: #dde3ea;
-  --hermes-fg: #1f2328;
-  --hermes-fg-muted: #59636e;
-  --hermes-fg-subtle: #818b98;
-  --hermes-accent: #0969da;
-  --hermes-accent-emphasis: #0550ae;
-  --hermes-accent-muted: #0969da18;
+  --hermes-canvas-inset: #e8eef3;
+  --hermes-border: #d0dae4;
+  --hermes-border-muted: #e2e9f0;
+  --hermes-fg: #0b1220;
+  --hermes-fg-muted: #5b6b7c;
+  --hermes-fg-subtle: #8a9aab;
+  --hermes-accent: #0f766e;
+  --hermes-accent-emphasis: #0d9488;
+  --hermes-accent-muted: #0f766e14;
   --hermes-accent-fg: #ffffff;
-  --hermes-success: #1a7f37;
-  --hermes-danger: #cf222e;
-  --hermes-attention: #9a6700;
-  --hermes-rail: #eef1f5;
-  --hermes-shadow: 0 1px 3px #1f232814, 0 4px 12px #1f23280a;
-  --hermes-user-bubble: #dceaf8;
-  --hermes-user-bubble-fg: #1f2328;
-  --hermes-user-bubble-border: #b6d4f0;
-  --hermes-assistant-bubble: #ffffff;
-  --hermes-assistant-bubble-border: #dde3ea;
-  --hermes-card-shadow: 0 1px 2px #1f23280f;
-  --hermes-gradient-accent: linear-gradient(90deg, var(--hermes-accent) 0%, transparent 100%);
+  --hermes-success: #047857;
+  --hermes-danger: #e11d48;
+  --hermes-attention: #b45309;
+  --hermes-info: #0369a1;
+  --hermes-file-code: #0369a1;
+  --hermes-file-script: #b45309;
+  --hermes-file-data: #047857;
+  --hermes-file-doc: #64748b;
+  --hermes-file-style: #0e7490;
+  --hermes-file-markup: #e11d48;
+  --hermes-file-image: #0d9488;
+  --hermes-file-config: #d97706;
+  --hermes-file-folder: #0284c7;
+  --hermes-rail: #e8eef3;
+  --hermes-shadow: 0 14px 36px #0b122014;
+  --hermes-user-bubble: #ccfbf1;
+  --hermes-user-bubble-fg: #042f2e;
+  --hermes-user-bubble-border: #99f6e4;
+  --hermes-assistant-bubble: transparent;
+  --hermes-assistant-bubble-border: transparent;
+  --hermes-card-shadow: 0 1px 2px #0b12200c;
+  --hermes-composer-bg: #fffffff5;
+  --hermes-header-bg: #fffffff0;
+  --hermes-feather: linear-gradient(
+    to top,
+    var(--hermes-canvas) 18%,
+    color-mix(in srgb, var(--hermes-canvas) 50%, transparent) 60%,
+    transparent
+  );
+  --hermes-welcome-glow:
+    radial-gradient(55% 45% at 50% -5%, #0f766e14 0%, transparent 68%),
+    radial-gradient(40% 35% at 90% 8%, #0284c710 0%, transparent 55%);
+  --hermes-gradient-accent: linear-gradient(135deg, #0f766e 0%, #0d9488 50%, #0284c7 100%);
+  --hermes-canvas-atmosphere:
+    radial-gradient(120% 70% at 50% -15%, #0f766e0d 0%, transparent 55%),
+    linear-gradient(180deg, #f4f7f9 0%, #eef3f7 100%);
+  --hermes-rail-glow: linear-gradient(180deg, #0f766e0e 0%, transparent 28%);
+  --hermes-selection: #0f766e22;
 }
 
 @theme {
@@ -98,6 +180,16 @@
   --color-success: var(--hermes-success);
   --color-danger: var(--hermes-danger);
   --color-attention: var(--hermes-attention);
+  --color-info: var(--hermes-info);
+  --color-file-code: var(--hermes-file-code);
+  --color-file-script: var(--hermes-file-script);
+  --color-file-data: var(--hermes-file-data);
+  --color-file-doc: var(--hermes-file-doc);
+  --color-file-style: var(--hermes-file-style);
+  --color-file-markup: var(--hermes-file-markup);
+  --color-file-image: var(--hermes-file-image);
+  --color-file-config: var(--hermes-file-config);
+  --color-file-folder: var(--hermes-file-folder);
   --color-rail: var(--hermes-rail);
   --color-user-bubble: var(--hermes-user-bubble);
   --color-user-bubble-fg: var(--hermes-user-bubble-fg);
@@ -105,21 +197,27 @@
   --color-assistant-bubble: var(--hermes-assistant-bubble);
   --color-assistant-bubble-border: var(--hermes-assistant-bubble-border);
 
-  --font-sans: system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  --font-sans: var(--font-ui), 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-brand), 'Fraunces', Georgia, serif;
+  --font-mono: var(--font-code), 'IBM Plex Mono', ui-monospace, Menlo, monospace;
 
   --text-sm: 0.875rem;
-  --text-base: 0.875rem;
-  --text-lg: 1rem;
+  --text-base: 0.9375rem;
+  --text-lg: 1.0625rem;
 
   --ease-shell: cubic-bezier(0.16, 1, 0.3, 1);
-  --duration-shell: 140ms;
-  --duration-fast: 150ms;
-  --ease-spring-out: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-shell: 180ms;
+  --duration-fast: 160ms;
+  --ease-spring-out: cubic-bezier(0.34, 1.4, 0.64, 1);
 
   --animate-caret-blink: caret-blink 1s step-end infinite;
   --animate-shimmer: shimmer 2s ease-in-out infinite;
   --animate-sweep: sweep 1.8s ease-in-out infinite;
   --animate-fade-in-up: fade-in-up var(--duration-fast) var(--ease-spring-out) both;
   --animate-stream-tail: stream-tail var(--duration-fast) ease-out both;
+  --animate-soft-rise: soft-rise 420ms var(--ease-shell) both;
+  --animate-message-settle: message-settle 420ms var(--ease-shell) both;
+  --animate-agent-pulse: agent-pulse 1.8s ease-in-out infinite;
+  --animate-agent-sparkle: agent-sparkle 1.6s ease-in-out infinite;
+  --animate-working-dots: working-dots 1.2s steps(1, end) infinite;
 }

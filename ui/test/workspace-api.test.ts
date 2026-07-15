@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { mapFsListToTree, mapGitStatusToDto } from '../src/lib/workspace-api'
 
 describe('workspace-api adapters', () => {

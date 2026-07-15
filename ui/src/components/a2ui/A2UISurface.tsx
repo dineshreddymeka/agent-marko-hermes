@@ -14,8 +14,15 @@ interface A2UISurfaceProps {
   surfaceId: string
 }
 
+function surfaceSnapshot(surfaceId: string): string {
+  const surface = getSurface(surfaceId)
+  if (!surface) return 'pending'
+  const ids = surface.components.map((c) => c.id).join(',')
+  return `${surface.complete}:${surface.components.length}:${ids}`
+}
+
 export function A2UISurface({ surfaceId }: A2UISurfaceProps) {
-  useSyncExternalStore(subscribeA2UI, () => getSurface(surfaceId)?.complete ?? false)
+  useSyncExternalStore(subscribeA2UI, () => surfaceSnapshot(surfaceId))
   const surface = getSurface(surfaceId)
 
   if (!surface) {
@@ -30,10 +37,10 @@ export function A2UISurface({ surfaceId }: A2UISurfaceProps) {
   return (
     <div
       className={cn(
-        'a2ui-artifact my-2 overflow-hidden rounded-xl border border-border-muted bg-canvas-subtle',
+        'a2ui-artifact my-2 overflow-hidden rounded-2xl border border-border bg-canvas-subtle/90',
       )}
     >
-      <div className="flex items-center gap-2 border-b border-border-muted bg-canvas-inset/50 px-3 py-2">
+      <div className="flex items-center gap-2 border-b border-border-muted bg-canvas-inset/40 px-3 py-2.5">
         <Sparkles size={14} className="text-accent" />
         <span className="text-xs font-medium text-fg">Interactive form</span>
         {!surface.complete && (
@@ -46,7 +53,9 @@ export function A2UISurface({ surfaceId }: A2UISurfaceProps) {
             key={component.id}
             component={component}
             data={surface.data}
-            onAction={(action, data) => sendA2UIAction(surfaceId, action, data)}
+            onAction={(action, data) =>
+              sendA2UIAction(surfaceId, action, data, surface.sessionId)
+            }
           />
         ))}
         {!surface.complete && <Skeleton className="h-6 w-1/2" />}

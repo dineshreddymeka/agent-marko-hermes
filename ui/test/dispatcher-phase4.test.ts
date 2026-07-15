@@ -6,7 +6,7 @@ import { useAgentStateStore } from '../src/stores/agentState'
 import { useSessionsStore } from '../src/stores/sessions'
 import { useUiStore } from '../src/stores/ui'
 
-// Bun test has no DOM rAF — polyfill so stream batching does not throw
+// happy-dom may lack rAF — polyfill so stream batching does not throw
 if (typeof globalThis.requestAnimationFrame !== 'function') {
   globalThis.requestAnimationFrame = (cb: FrameRequestCallback) => {
     return setTimeout(() => cb(Date.now()), 0) as unknown as number
@@ -167,6 +167,8 @@ describe('agui dispatcher Phase 4 events', () => {
   })
 
   test('TOOL_CALL associates parentMessageId and live args', () => {
+    useChatStore.getState().setRunId('r1')
+    useChatStore.getState().setRunStatus('running')
     useChatStore.getState().addMessage('s1', {
       id: 'asst-1',
       sessionId: 's1',
@@ -306,6 +308,34 @@ describe('agui dispatcher Phase 4 events', () => {
 
     const msg = useChatStore.getState().messagesBySession.s1?.[0]
     expect(msg?.a2ui).toBe('doc-form-test')
+  })
+
+  test('a2ui.message with a2ui_render creates assistant bubble when missing', () => {
+    dispatchAguiEvent(
+      {
+        type: EventType.CUSTOM,
+        name: 'a2ui.message',
+        value: {
+          surfaceId: 'dynamic-form-1',
+          parentMessageId: 'asst-missing',
+          component: {
+            id: 'contact',
+            type: 'hermes:DynamicForm',
+            props: {
+              title: 'Contact',
+              fields: [{ name: 'email', label: 'Email', type: 'email' }],
+            },
+          },
+          complete: true,
+        },
+      } as never,
+      's1',
+    )
+
+    const msgs = useChatStore.getState().messagesBySession.s1 ?? []
+    expect(msgs).toHaveLength(1)
+    expect(msgs[0]?.id).toBe('asst-missing')
+    expect(msgs[0]?.a2ui).toBe('dynamic-form-1')
   })
 
   test('hermes.cowork.progress attaches lines to delegate_to_cowork tool card', () => {

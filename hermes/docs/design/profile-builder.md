@@ -142,5 +142,5 @@ Nothing writes to disk until ⑤.
   profile dir has the model in config.yaml, both MCP servers in config.yaml,
   the builtin skills enabled, and a spawned PID for the hub skill. Negative:
   a bad MCP entry must not 500 the create.
-- `cd web && npm run build` (no JS test suite in web/).
+- `npm install && npm run build:ui` (Marko Next export → hermes_cli/web_dist).
 - Targeted: `pytest tests/<web_server profile tests> -k profile_create`.

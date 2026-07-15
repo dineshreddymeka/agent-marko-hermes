@@ -35,17 +35,59 @@ import { useUiStore } from '@app/stores/ui'
 import { extractA2uiSurfaceId, processA2UIMessage } from '@app/lib/a2ui/processor'
 import { executeFrontendTool, isFrontendTool } from '@app/lib/agui/frontend-tools'
 import { mergeCoworkProgress } from '@app/lib/cowork-progress'
+import { isPlaceholderSessionTitle } from '@app/lib/session-title'
 import { generateId } from '@app/lib/utils'
 import type { ChatMessage } from '@app/stores/chat'
 import type { AgentState } from '@app/types/hermes'
 import type { Operation } from 'fast-json-patch'
 
-/** Ignore lifecycle events from a superseded/aborted run. */
+/** Ignore lifecycle events from a superseded/aborted run or after session reset. */
 function isCurrentRun(eventRunId: string | null | undefined): boolean {
   if (eventRunId == null || eventRunId === '') return true
   const active = useChatStore.getState().runId
-  if (active == null) return true
+  if (active == null) return false
   return String(eventRunId) === active
+}
+
+/** Client-side mirror of backend heuristic_title — keeps sidebar titled if SSE is missed. */
+function heuristicTitleFromUserMessage(userMessage: string): string | null {
+  const text = userMessage.trim().replace(/\s+/g, ' ')
+  if (!text) return null
+  let body = text
+  for (const prefix of ['please ', 'can you ', 'could you ', 'hey ', 'hi ', 'hello ']) {
+    if (body.toLowerCase().startsWith(prefix)) {
+      body = body.slice(prefix.length)
+      break
+    }
+  }
+  const words = body.split(' ').filter(Boolean)
+  if (words.length === 0) return null
+  if (words.length === 1 && words[0].length <= 4 && /^[a-zA-Z]+$/.test(words[0])) {
+    return words[0].toUpperCase()
+  }
+  let clipped = words.slice(0, 7).join(' ')
+  if (words.length > 7 || clipped.length > 64) {
+    clipped = `${clipped.slice(0, 63).replace(/[.,;:!? ]+$/, '')}…`
+  } else {
+    clipped = clipped.replace(/[.,;:!?]+$/, '')
+  }
+  if (clipped && clipped[0] === clipped[0].toLowerCase()) {
+    clipped = clipped[0].toUpperCase() + clipped.slice(1)
+  }
+  return clipped || null
+}
+
+function ensureSessionTitleFromChat(sessionId: string | null): void {
+  if (!sessionId) return
+  const sessions = useSessionsStore.getState()
+  const session = sessions.sessions.find((s) => s.id === sessionId)
+  if (session && !isPlaceholderSessionTitle(session.title)) return
+  const messages = useChatStore.getState().messagesBySession[sessionId] ?? []
+  const firstUser = messages.find((m) => m.role === 'user' && m.content?.trim())
+  if (!firstUser?.content) return
+  const title = heuristicTitleFromUserMessage(firstUser.content)
+  // updateSession upserts so a missing sidebar row still gets a title.
+  if (title) sessions.updateSession(sessionId, { title })
 }
 
 /** Reset in-flight streaming UI so thinking/stop cannot stick after terminal events. */
@@ -65,16 +107,18 @@ function finalizeRunUi(chat: ReturnType<typeof useChatStore.getState>): void {
 export function dispatchAguiEvent(event: BaseEvent, sessionId: string | null): void {
   const chat = useChatStore.getState()
   const agentState = useAgentStateStore.getState()
-  const sessions = useSessionsStore.getState()
   const ui = useUiStore.getState()
 
   switch (event.type) {
     case EventType.RUN_STARTED: {
       const e = event as RunStartedEvent
-      // Client already set runId before the request; ignore late STARTED from an old run.
-      if (!isCurrentRun(e.runId)) break
+      const eventRun = e.runId != null ? String(e.runId) : null
+      const active = chat.runId
+      // Client usually sets runId before the request; reject late STARTED from an old run.
+      if (eventRun != null && active != null && active !== eventRun) break
       chat.setRunStatus('running')
       chat.setRunId(e.runId ?? chat.runId)
+      if (sessionId) chat.setRunSessionId(sessionId)
       chat.setError(null)
       chat.clearStage()
       chat.setStage('starting')
@@ -85,6 +129,7 @@ export function dispatchAguiEvent(event: BaseEvent, sessionId: string | null): v
       const e = event as { runId?: string }
       if (!isCurrentRun(e.runId)) break
       finalizeRunUi(chat)
+      ensureSessionTitleFromChat(sessionId)
       chat.setStage('done')
       chat.setRunStatus('idle')
       chat.setRunId(null)
@@ -219,6 +264,8 @@ export function dispatchAguiEvent(event: BaseEvent, sessionId: string | null): v
 
     case EventType.TOOL_CALL_START: {
       const e = event as ToolCallStartEvent & { parentMessageId?: string }
+      if (chat.runStatus !== 'running') break
+      if (!isCurrentRun(e.runId != null ? String(e.runId) : undefined)) break
       chat.setStage('tool', e.toolCallName)
       if (e.toolCallId && e.toolCallName) {
         let messageId =
@@ -226,6 +273,21 @@ export function dispatchAguiEvent(event: BaseEvent, sessionId: string | null): v
         if (!messageId && sessionId) {
           const msgs = chat.messagesBySession[sessionId] ?? []
           messageId = [...msgs].reverse().find((m) => m.role === 'assistant')?.id
+        }
+        if (messageId && sessionId) {
+          const live = useChatStore.getState()
+          const msgs = live.messagesBySession[sessionId] ?? []
+          if (!msgs.some((m) => m.id === messageId)) {
+            live.addMessage(sessionId, {
+              id: messageId,
+              sessionId,
+              runId: e.runId != null ? String(e.runId) : live.runId,
+              role: 'assistant',
+              content: '',
+              streaming: true,
+              createdAt: new Date().toISOString(),
+            })
+          }
         }
         chat.upsertToolCall(e.toolCallId, {
           id: e.toolCallId,
@@ -354,10 +416,15 @@ export function dispatchAguiEvent(event: BaseEvent, sessionId: string | null): v
           payload.tokensUsed ?? payload.totalTokens ?? payload.promptTokens ?? 0
         const limit = payload.tokensMax ?? payload.contextLimit ?? 128_000
         chat.setContextUsage({ used, limit })
-      } else if (name === 'hermes.title') {
-        const payload = value as HermesTitlePayload
-        if (sessionId) {
-          sessions.updateSession(sessionId, { title: payload.title })
+      } else if (name === 'hermes.title' || name === HermesCustomEvents.TITLE) {
+        const payload = (value ?? {}) as HermesTitlePayload
+        const targetId =
+          (typeof payload.sessionId === 'string' && payload.sessionId.trim()) ||
+          sessionId
+        const title = typeof payload.title === 'string' ? payload.title.trim() : ''
+        if (targetId && title && !isPlaceholderSessionTitle(title)) {
+          // Fresh store handle — avoid stale closure if CUSTOM arrives late.
+          useSessionsStore.getState().updateSession(targetId, { title })
         }
       } else if (name === 'hermes.skill.learned') {
         const payload = value as HermesSkillLearnedPayload
@@ -373,11 +440,22 @@ export function dispatchAguiEvent(event: BaseEvent, sessionId: string | null): v
           description: payload.jobName,
           variant: 'attention',
         })
-      } else if (name === 'a2ui.message') {
+      } else if (name === 'a2ui.message' || name === HermesCustomEvents.A2UI_MESSAGE) {
         processA2UIMessage(value, sessionId)
         const surfaceId = extractA2uiSurfaceId(value)
         if (surfaceId && sessionId) {
-          chat.attachA2uiSurface(sessionId, surfaceId)
+          const payload = (value ?? {}) as { parentMessageId?: unknown }
+          let parentId =
+            typeof payload.parentMessageId === 'string' && payload.parentMessageId.trim()
+              ? payload.parentMessageId.trim()
+              : undefined
+          if (!parentId) {
+            const tc = [...Object.values(useChatStore.getState().toolCalls)]
+              .reverse()
+              .find((t) => t.name === 'a2ui_render' && t.messageId)
+            parentId = tc?.messageId
+          }
+          useChatStore.getState().attachA2uiSurface(sessionId, surfaceId, parentId)
         }
       } else if (name === 'hermes.approval.required') {
         const payload = value as HermesApprovalRequiredPayload

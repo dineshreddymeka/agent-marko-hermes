@@ -1,6 +1,76 @@
 @import 'tailwindcss';
 @import './tokens.css';
 
+/*
+ * Tailwind v4 composes motion-safe: only with @utility classes, not plain @layer
+ * utilities. Register agent animation utilities so motion-safe:* classes emit CSS.
+ */
+@utility text-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-fg-muted) 0%,
+    var(--color-accent) 50%,
+    var(--color-fg-muted) 100%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: var(--animate-shimmer);
+}
+
+@utility stage-sweep-bar {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--color-accent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: var(--animate-sweep);
+}
+
+@utility message-enter {
+  animation: var(--animate-soft-rise);
+}
+
+@utility message-settle {
+  animation: var(--animate-message-settle);
+}
+
+@utility agent-status-settle {
+  animation: var(--animate-message-settle);
+}
+
+@utility agent-chip-pulse {
+  animation: var(--animate-agent-pulse);
+}
+
+@utility agent-sparkle {
+  animation: var(--animate-agent-sparkle);
+}
+
+@utility stream-tail-reveal {
+  animation: var(--animate-stream-tail);
+}
+
+@utility skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-canvas-inset) 0%,
+    var(--color-canvas-subtle) 50%,
+    var(--color-canvas-inset) 100%
+  );
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+}
+
+@utility transition-shell {
+  transition-property: width, opacity, transform, background-color, border-color, box-shadow;
+  transition-duration: var(--duration-shell);
+  transition-timing-function: var(--ease-shell);
+}
+
 @layer base {
   *,
   *::before,
@@ -18,11 +88,18 @@
     margin: 0;
     font-family: var(--font-sans);
     font-size: var(--text-base);
-    line-height: 1.5;
+    line-height: 1.55;
+    letter-spacing: -0.011em;
     color: var(--color-fg);
-    background: var(--color-canvas);
+    background: var(--hermes-canvas-atmosphere, var(--color-canvas));
+    background-attachment: fixed;
     -webkit-font-smoothing: antialiased;
     padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  ::selection {
+    background: var(--hermes-selection);
+    color: var(--color-fg);
   }
 
   button {
@@ -37,10 +114,78 @@
 }
 
 @layer utilities {
-  .transition-shell {
-    transition-property: width, opacity, transform, background-color, border-color;
-    transition-duration: var(--duration-shell);
-    transition-timing-function: var(--ease-shell);
+  .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+
+  .chat-feather {
+    background: var(--hermes-feather);
+    pointer-events: none;
+  }
+
+  .composer-surface {
+    background: var(--hermes-composer-bg);
+    backdrop-filter: blur(18px) saturate(1.15);
+    -webkit-backdrop-filter: blur(18px) saturate(1.15);
+    box-shadow: var(--hermes-shadow), 0 0 0 1px color-mix(in srgb, var(--color-accent) 12%, transparent);
+  }
+
+  .header-surface {
+    background: var(--hermes-header-bg);
+    backdrop-filter: blur(14px) saturate(1.1);
+    -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  }
+
+  .welcome-glow {
+    background: var(--hermes-welcome-glow);
+  }
+
+  .accent-chip {
+    background: var(--hermes-gradient-accent);
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--color-accent) 28%, transparent);
+  }
+
+  .rail-surface {
+    background:
+      var(--hermes-rail-glow),
+      var(--color-rail);
+  }
+
+  .smart-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-radius: 9999px;
+    padding: 0.125rem 0.5rem;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  .smart-chip-info {
+    color: var(--color-info);
+    background: color-mix(in srgb, var(--color-info) 16%, transparent);
+  }
+
+  .smart-chip-success {
+    color: var(--color-success);
+    background: color-mix(in srgb, var(--color-success) 16%, transparent);
+  }
+
+  .smart-chip-attention {
+    color: var(--color-attention);
+    background: color-mix(in srgb, var(--color-attention) 16%, transparent);
+  }
+
+  .smart-chip-danger {
+    color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 16%, transparent);
+  }
+
+  .smart-chip-accent {
+    color: var(--color-accent-emphasis);
+    background: color-mix(in srgb, var(--color-accent) 16%, transparent);
   }
 
   .streaming-caret {
@@ -53,53 +198,46 @@
     animation: var(--animate-caret-blink);
   }
 
-  .text-shimmer {
-    background: linear-gradient(
-      90deg,
-      var(--color-fg-muted) 0%,
-      var(--color-accent) 50%,
-      var(--color-fg-muted) 100%
-    );
-    background-size: 200% 100%;
-    background-clip: text;
-    -webkit-background-clip: text;
-    color: transparent;
-    animation: var(--animate-shimmer);
+  .streaming-cursor {
+    caret-color: var(--color-accent);
   }
 
-  .stage-sweep-bar {
+  .streaming-response {
+    position: relative;
+  }
+
+  .streaming-response::after {
+    content: '';
+    pointer-events: none;
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 1.6em;
     background: linear-gradient(
       90deg,
       transparent 0%,
-      var(--color-accent) 50%,
+      color-mix(in srgb, var(--color-accent) 12%, transparent) 50%,
       transparent 100%
     );
     background-size: 200% 100%;
     animation: var(--animate-sweep);
+    opacity: 0.55;
   }
 
-  .stream-tail-reveal {
-    animation: var(--animate-stream-tail);
+  .working-dots::after {
+    content: '';
+    animation: var(--animate-working-dots);
   }
 
-  .message-enter {
-    animation: var(--animate-fade-in-up);
+  @media (prefers-reduced-motion: no-preference) {
+    .motion-safe\:working-dots::after {
+      content: '';
+      animation: var(--animate-working-dots);
+    }
   }
 
   .thinking-tail-mask {
     mask-image: linear-gradient(to right, transparent, black 1.5rem);
     -webkit-mask-image: linear-gradient(to right, transparent, black 1.5rem);
-  }
-
-  .skeleton-shimmer {
-    background: linear-gradient(
-      90deg,
-      var(--color-canvas-inset) 0%,
-      var(--color-canvas-subtle) 50%,
-      var(--color-canvas-inset) 100%
-    );
-    background-size: 200% 100%;
-    animation: var(--animate-shimmer);
   }
 
   .a2ui-artifact {
@@ -109,8 +247,8 @@
 
 @layer components {
   .markdown-body {
-    font-size: 0.875rem;
-    line-height: 1.6;
+    font-size: 0.9375rem;
+    line-height: 1.65;
     color: var(--color-fg);
     word-wrap: break-word;
   }
@@ -227,6 +365,17 @@
   }
 }
 
+@keyframes soft-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes stream-tail {
   from {
     opacity: 0.35;
@@ -235,6 +384,59 @@
   to {
     opacity: 1;
     filter: blur(0);
+  }
+}
+
+@keyframes message-settle {
+  from {
+    opacity: 0.88;
+    filter: saturate(1.08);
+  }
+  to {
+    opacity: 1;
+    filter: saturate(1);
+  }
+}
+
+@keyframes agent-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 0%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 14%, transparent);
+  }
+}
+
+@keyframes agent-sparkle {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+    opacity: 1;
+  }
+  40% {
+    transform: rotate(-8deg) scale(1.08);
+    opacity: 0.9;
+  }
+  70% {
+    transform: rotate(8deg) scale(1.05);
+    opacity: 1;
+  }
+}
+
+@keyframes working-dots {
+  0% {
+    content: '';
+  }
+  25% {
+    content: '.';
+  }
+  50% {
+    content: '..';
+  }
+  75%,
+  100% {
+    content: '...';
   }
 }
 
@@ -247,6 +449,11 @@
     --animate-sweep: none;
     --animate-fade-in-up: none;
     --animate-stream-tail: none;
+    --animate-soft-rise: none;
+    --animate-message-settle: none;
+    --animate-agent-pulse: none;
+    --animate-agent-sparkle: none;
+    --animate-working-dots: none;
   }
 
   .streaming-caret {
@@ -256,11 +463,21 @@
 
   .text-shimmer,
   .stage-sweep-bar,
-  .skeleton-shimmer {
+  .skeleton-shimmer,
+  .streaming-response::after {
     animation: none;
   }
 
-  .message-enter {
+  .message-enter,
+  .message-settle,
+  .agent-status-settle,
+  .agent-chip-pulse,
+  .agent-sparkle {
+    animation: none;
+  }
+
+  .working-dots::after {
+    content: '…';
     animation: none;
   }
 }

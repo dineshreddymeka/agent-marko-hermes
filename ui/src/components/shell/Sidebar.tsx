@@ -2,23 +2,19 @@ import { PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react'
 import { useNavigate } from '@tanstack/react-router'
 import { SessionsPanel } from '@app/components/panels/SessionsPanel'
 import { useUiStore } from '@app/stores/ui'
-import { useSessionsStore } from '@app/stores/sessions'
-import { apiClient } from '@app/lib/api'
-import type { Session } from '@hermes/shared'
+import { createPersistedSession } from '@app/lib/sessions-api'
 
 export function Sidebar() {
   const sidebarOpen = useUiStore((s) => s.sidebarOpen)
   const toggleSidebar = useUiStore((s) => s.toggleSidebar)
   const addToast = useUiStore((s) => s.addToast)
-  const addSession = useSessionsStore((s) => s.addSession)
-  const setActiveSessionId = useSessionsStore((s) => s.setActiveSessionId)
   const navigate = useNavigate()
 
   const newSession = async () => {
     try {
-      const session = await apiClient.post<Session>('/api/sessions', { title: 'New chat' })
-      addSession(session)
-      setActiveSessionId(session.id)
+      // createPersistedSession normalizes placeholder titles and merges into
+      // the sessions store so later updateSession(title) patches the same row.
+      const session = await createPersistedSession('New chat')
       void navigate({ to: '/session/$id', params: { id: session.id } })
     } catch {
       addToast({ title: 'Could not create session', variant: 'danger' })

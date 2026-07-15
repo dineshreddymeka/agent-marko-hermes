@@ -72,6 +72,8 @@ interface ChatState {
   toolCalls: Record<string, ToolCallState>
   runStatus: RunStatus
   runId: string | null
+  /** Session that owns the current run UI (null when viewing history or idle). */
+  runSessionId: string | null
   runSteps: RunStep[]
   runStage: RunStage | null
   stageHistory: Array<RunStage & { endedAt: number }>
@@ -95,6 +97,7 @@ interface ChatState {
   flushThinkingBuffer: (messageId: string) => void
   setRunStatus: (status: RunStatus) => void
   setRunId: (runId: string | null) => void
+  setRunSessionId: (sessionId: string | null) => void
   setStage: (kind: RunStageKind, toolName?: string) => void
   clearStage: () => void
   setError: (error: string | null) => void
@@ -160,10 +163,15 @@ function scheduleFlush(
       set((s) => {
         const messagesBySession = { ...s.messagesBySession }
         for (const [sessionId, messages] of Object.entries(messagesBySession)) {
-          messagesBySession[sessionId] = messages.map((m) => {
+          // Preserve array identity for untouched sessions: this flush runs
+          // per animation frame, and replacing every array forces a full
+          // message-list re-render for every open session on every frame.
+          let changed = false
+          const next = messages.map((m) => {
             const contentDelta = contentUpdates[m.id]
             const thinkingDelta = thinkingUpdates[m.id]
             if (!contentDelta && !thinkingDelta) return m
+            changed = true
             return {
               ...m,
               content: contentDelta ? m.content + contentDelta : m.content,
@@ -171,6 +179,7 @@ function scheduleFlush(
               streaming: true,
             }
           })
+          if (changed) messagesBySession[sessionId] = next
         }
         return { messagesBySession, streamingBuffer: nextBuffer }
       })
@@ -201,8 +210,10 @@ function flushBufferKey(
       const messagesBySession = { ...s.messagesBySession }
       const messageId = isThinkingBufferKey(key) ? thinkingMessageId(key) : key
       for (const [sessionId, messages] of Object.entries(messagesBySession)) {
-        messagesBySession[sessionId] = messages.map((m) => {
+        let changed = false
+        const next = messages.map((m) => {
           if (m.id !== messageId) return m
+          changed = true
           if (opts.field === 'thinking') {
             return {
               ...m,
@@ -216,6 +227,7 @@ function flushBufferKey(
             streaming: opts.streaming,
           }
         })
+        if (changed) messagesBySession[sessionId] = next
       }
       const streamingBuffer = { ...s.streamingBuffer }
       delete streamingBuffer[key]
@@ -226,9 +238,13 @@ function flushBufferKey(
     set((s) => {
       const messagesBySession = { ...s.messagesBySession }
       for (const [sessionId, messages] of Object.entries(messagesBySession)) {
-        messagesBySession[sessionId] = messages.map((m) =>
-          m.id === messageId ? { ...m, streaming: false } : m,
-        )
+        let changed = false
+        const next = messages.map((m) => {
+          if (m.id !== messageId || m.streaming === false) return m
+          changed = true
+          return { ...m, streaming: false }
+        })
+        if (changed) messagesBySession[sessionId] = next
       }
       return { messagesBySession }
     })
@@ -240,6 +256,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   toolCalls: {},
   runStatus: 'idle',
   runId: null,
+  runSessionId: null,
   runSteps: [],
   runStage: null,
   stageHistory: [],
@@ -268,8 +285,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       if (!targetId) {
         const a2uiTools = new Set([
           'document_form_show',
-          'cron_form_show',
           'form_request_show',
+          'cron_form_show',
           'a2ui_render',
         ])
         const tc = [...Object.values(s.toolCalls)]
@@ -283,10 +300,29 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       }
       if (!targetId) return s
 
-      const list = s.messagesBySession[sessionId] ?? []
-      const next = list.map((m) =>
-        m.id === targetId ? { ...m, a2ui: surfaceId } : m,
-      )
+      let list = s.messagesBySession[sessionId] ?? []
+      if (!list.some((m) => m.id === targetId)) {
+        // TEXT_MESSAGE_START can be skipped (stale run guard); ensure a bubble
+        // exists so MessageBubble mounts A2UISurface for this surface id.
+        list = [
+          ...list,
+          {
+            id: targetId,
+            sessionId,
+            runId: s.runId,
+            role: 'assistant' as const,
+            content: '',
+            streaming: false,
+            createdAt: new Date().toISOString(),
+          },
+        ]
+      }
+      const next = list.map((m) => {
+        if (m.id !== targetId) return m
+        const existing = resolveA2uiSurfaceRef(m.a2ui)
+        if (existing === surfaceId) return m
+        return { ...m, a2ui: surfaceId }
+      })
       return {
         messagesBySession: { ...s.messagesBySession, [sessionId]: next },
       }
@@ -326,6 +362,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
   setRunStatus: (runStatus) => set({ runStatus }),
   setRunId: (runId) => set({ runId }),
+  setRunSessionId: (sessionId) => set({ runSessionId: sessionId }),
 
   setStage: (kind, toolName) =>
     set((s) => {
@@ -372,6 +409,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     set({
       runStatus: 'idle',
       runId: null,
+      runSessionId: null,
       runSteps: [],
       runStage: null,
       stageHistory: [],

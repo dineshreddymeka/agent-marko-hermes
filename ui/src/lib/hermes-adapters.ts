@@ -1,6 +1,6 @@
 /**
  * Adapters: Hermes FastAPI session/message shapes → Marko shared DTOs.
- * Keeps the UI talking one-hop to Hermes without a Bun DTO layer.
+ * Keeps the UI talking one-hop to Hermes without a middle DTO layer.
  */
 import type {
   Message,
@@ -10,11 +10,13 @@ import type {
   Session,
 } from '@hermes/shared'
 import { apiClient } from '@app/lib/api'
+import { isPlaceholderSessionTitle } from '@app/lib/session-title'
 
 type HermesSessionRow = {
   id?: string
   session_id?: string
   title?: string | null
+  preview?: string | null
   archived?: boolean | number
   started_at?: number | string | null
   last_active?: number | string | null
@@ -37,6 +39,7 @@ type HermesMessageRow = {
   tool_calls?: unknown
   reasoning?: string | null
   reasoning_content?: string | null
+  a2ui?: unknown
   timestamp?: number | string | null
 }
 
@@ -63,13 +66,24 @@ function contentToString(content: unknown): string {
   }
 }
 
+function displaySessionTitle(row: HermesSessionRow): string {
+  const raw = row.title != null ? String(row.title).trim() : ''
+  if (!isPlaceholderSessionTitle(raw)) return raw
+  const preview = row.preview != null ? String(row.preview).trim() : ''
+  if (preview) {
+    const oneLine = preview.replace(/\s+/g, ' ')
+    return oneLine.length > 64 ? `${oneLine.slice(0, 63)}…` : oneLine
+  }
+  return 'New chat'
+}
+
 export function hermesSessionToDto(row: HermesSessionRow): Session {
   const id = String(row.id ?? row.session_id ?? '')
   const createdAt = tsToIso(row.started_at)
   const updatedAt = tsToIso(row.last_active ?? row.started_at)
   return {
     id,
-    title: (row.title && String(row.title)) || 'Untitled',
+    title: displaySessionTitle(row),
     groupName: null,
     profileId: row.profile ? String(row.profile) : null,
     pinned: false,
@@ -104,7 +118,18 @@ export function hermesMessageToDto(
       (typeof row.reasoning_content === 'string' && row.reasoning_content) ||
       (typeof row.reasoning === 'string' && row.reasoning) ||
       null,
-    a2ui: null,
+    a2ui:
+      row.a2ui && typeof row.a2ui === 'object'
+        ? (row.a2ui as Record<string, unknown>)
+        : typeof row.a2ui === 'string' && row.a2ui.trim()
+          ? (() => {
+              try {
+                return JSON.parse(row.a2ui) as Record<string, unknown>
+              } catch {
+                return null
+              }
+            })()
+          : null,
     tokens: null,
     createdAt: tsToIso(row.timestamp),
   }
@@ -127,9 +152,16 @@ export async function createHermesSession(
   if (id) body.id = id
   const data = await apiClient.post<Session | HermesSessionRow>('/api/sessions', body)
   // POST /api/sessions already returns Marko Session shape from Hermes;
-  // also accept raw Hermes rows.
+  // also accept raw Hermes rows. Always normalize placeholder titles.
   if (data && typeof data === 'object' && 'createdAt' in data && 'id' in data) {
-    return data as Session
+    const session = data as Session
+    return {
+      ...session,
+      title: displaySessionTitle({
+        id: session.id,
+        title: session.title,
+      }),
+    }
   }
   return hermesSessionToDto(data as HermesSessionRow)
 }
@@ -220,7 +252,7 @@ export async function deleteHermesProfile(id: string): Promise<void> {
 
 /** OJ-only surfaces stubbed when Hermes has no equivalent. */
 export function descopedFeatureMessage(feature: string): string {
-  return `${feature} requires Open Jarvis Bun/Postgres and is descoped in the Hermes-direct build.`
+  return `${feature} requires Open Jarvis Postgres features and is descoped in the Hermes-direct build.`
 }
 
 // ── MCP servers (Hermes /api/mcp/servers*) ────────────────────────────────

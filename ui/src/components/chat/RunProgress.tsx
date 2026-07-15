@@ -1,23 +1,9 @@
-import { Brain, Check, Loader2, PenLine, Wrench, X } from 'lucide-react'
+import { Check, Loader2, X } from 'lucide-react'
 import { useChatStore, type RunStageKind } from '@app/stores/chat'
 import { cancelRun } from '@app/lib/agui/client'
 import { useNow } from '@app/hooks/useNow'
 import { toolLabel } from '@app/lib/labels'
 import { cn } from '@app/lib/utils'
-
-const STAGE_ORDER: RunStageKind[] = ['starting', 'thinking', 'tool', 'writing', 'done']
-
-const STAGE_META: Record<
-  RunStageKind,
-  { label: string; icon: typeof Brain; mobileLabel?: string }
-> = {
-  starting: { label: 'Starting', icon: Loader2, mobileLabel: 'Starting…' },
-  thinking: { label: 'Thinking', icon: Brain, mobileLabel: 'Thinking…' },
-  tool: { label: 'Calling tool', icon: Wrench, mobileLabel: 'Tool…' },
-  writing: { label: 'Writing', icon: PenLine, mobileLabel: 'Writing…' },
-  done: { label: 'Done', icon: Check, mobileLabel: 'Done' },
-  error: { label: 'Error', icon: X, mobileLabel: 'Error' },
-}
 
 function formatElapsed(ms: number): string {
   const sec = Math.max(0, Math.round(ms / 1000))
@@ -25,107 +11,112 @@ function formatElapsed(ms: number): string {
   return `${Math.floor(sec / 60)}m ${sec % 60}s`
 }
 
-function stageLabel(kind: RunStageKind, toolName?: string): string {
-  if (kind === 'tool' && toolName) return `Calling ${toolLabel(toolName)}`
-  return STAGE_META[kind].label
+/** Cursor-style single status line for the live agent run. */
+function statusCopy(kind: RunStageKind, toolName?: string): string {
+  switch (kind) {
+    case 'starting':
+      return 'Working'
+    case 'thinking':
+      return 'Thinking'
+    case 'tool':
+      return toolName ? `Calling ${toolLabel(toolName)}` : 'Running tool'
+    case 'writing':
+      return 'Writing'
+    case 'done':
+      return 'Done'
+    case 'error':
+      return 'Something went wrong'
+    default:
+      return 'Working'
+  }
 }
 
-/** Compact run-stage timeline — replaces bare "Agent running…" strip. */
-export function StageStrip() {
+/** Compact Cursor-like run status — shimmer while active, settle when done. */
+export function StageStrip({ sessionId }: { sessionId?: string }) {
   const runStatus = useChatStore((s) => s.runStatus)
   const runStage = useChatStore((s) => s.runStage)
+  const runSessionId = useChatStore((s) => s.runSessionId)
   const runSteps = useChatStore((s) => s.runSteps)
   const now = useNow(250)
 
+  if (runSessionId != null && runSessionId !== sessionId) return null
   if (!runStage) return null
   if (runStatus !== 'running' && runStage.kind !== 'done' && runStage.kind !== 'error') return null
 
   const elapsed = formatElapsed(now - runStage.startedAt)
-  const currentIdx = STAGE_ORDER.indexOf(runStage.kind)
+  const active = runStatus === 'running'
+  const done = runStage.kind === 'done'
+  const errored = runStage.kind === 'error'
+  const label = statusCopy(runStage.kind, runStage.toolName)
+  const recentSteps = runSteps.slice(-4)
 
   return (
-    <div className="relative border-t border-border bg-canvas-subtle/80">
-      <div className="motion-safe:stage-sweep-bar absolute inset-x-0 top-0 h-px opacity-60" aria-hidden />
-      <div className="flex items-center gap-2 px-3 py-2 text-xs text-fg-muted md:px-4">
-        <div className="hidden items-center gap-1.5 md:flex">
-          {STAGE_ORDER.slice(0, -1).map((kind, idx) => {
-            const meta = STAGE_META[kind]
-            const Icon = meta.icon
-            const isPast = currentIdx > idx
-            const isCurrent = runStage.kind === kind
-            return (
-              <div key={kind} className="flex items-center gap-1.5">
-                {idx > 0 && <span className="text-fg-subtle">→</span>}
-                <span
-                  className={cn(
-                    'inline-flex items-center gap-1 rounded-full px-2 py-0.5',
-                    isCurrent && 'bg-accent-muted text-accent',
-                    isPast && 'text-success',
-                    !isCurrent && !isPast && 'text-fg-subtle',
-                  )}
-                >
-                  {isPast ? <Check size={12} /> : (
-                    <Icon
-                      size={12}
-                      className={cn(
-                        isCurrent && (kind === 'starting' || kind === 'tool') && 'motion-safe:animate-spin',
-                      )}
-                    />
-                  )}
-                  {kind === 'tool' && isCurrent && runStage.toolName
-                    ? toolLabel(runStage.toolName)
-                    : meta.label}
-                </span>
-              </div>
-            )
-          })}
-        </div>
-        <div className="flex min-w-0 flex-1 items-center gap-2 md:hidden">
-          {(() => {
-            const Icon = STAGE_META[runStage.kind].icon
-            return (
-              <>
-                <Icon
-                  size={14}
-                  className={cn(
-                    'shrink-0 text-accent',
-                    (runStage.kind === 'starting' || runStage.kind === 'tool') && 'motion-safe:animate-spin',
-                  )}
-                />
-                <span className="truncate font-medium text-fg">
-                  {stageLabel(runStage.kind, runStage.toolName)}
-                </span>
-              </>
-            )
-          })()}
-        </div>
-        <span className="hidden tabular-nums text-fg-muted md:inline">{elapsed}</span>
-        <span className="tabular-nums text-fg-muted md:hidden">{elapsed}</span>
-        {runSteps.length > 0 && (
-          <div className="hidden items-center gap-1 lg:flex">
-            {runSteps.map((step) => (
+    <div
+      className={cn(
+        'relative border-t border-border bg-canvas-subtle/80 motion-safe:transition-shell',
+        done && 'motion-safe:agent-status-settle',
+      )}
+      role="status"
+      aria-live="polite"
+    >
+      {active && (
+        <div className="motion-safe:stage-sweep-bar absolute inset-x-0 top-0 h-px opacity-70" aria-hidden />
+      )}
+      <div className="flex items-center gap-2.5 px-3 py-2 text-xs md:px-4">
+        {done ? (
+          <Check size={14} className="shrink-0 text-success" aria-hidden />
+        ) : errored ? (
+          <X size={14} className="shrink-0 text-danger" aria-hidden />
+        ) : (
+          <Loader2
+            size={14}
+            className="shrink-0 animate-spin text-accent"
+            aria-hidden
+          />
+        )}
+
+        <span
+          className={cn(
+            'min-w-0 truncate font-medium',
+            active && 'motion-safe:text-shimmer',
+            done && 'text-success',
+            errored && 'text-danger',
+            !active && !done && !errored && 'text-fg',
+          )}
+        >
+          {label}
+          {active ? '…' : ''}
+        </span>
+
+        <span className="shrink-0 tabular-nums text-fg-muted">{elapsed}</span>
+
+        {recentSteps.length > 0 && (
+          <div className="hidden min-w-0 flex-1 items-center gap-1 overflow-hidden sm:flex">
+            {recentSteps.map((step) => (
               <span
                 key={step.id}
                 className={cn(
-                  'rounded px-1.5 py-0.5',
+                  'max-w-[9rem] truncate rounded-md px-1.5 py-0.5 text-[11px]',
                   step.status === 'done'
-                    ? 'bg-success/15 text-success'
-                    : 'bg-accent-muted text-accent',
+                    ? 'bg-success/12 text-success'
+                    : 'bg-accent-muted text-accent motion-safe:agent-chip-pulse',
                 )}
+                title={step.name}
               >
                 {step.name}
               </span>
             ))}
           </div>
         )}
-        {runStatus === 'running' && (
+
+        {active && (
           <button
             type="button"
             onClick={cancelRun}
-            className="ml-auto flex shrink-0 items-center gap-1 rounded-md px-2 py-1 hover:bg-canvas-inset"
+            className="ml-auto flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-fg-muted hover:bg-canvas-inset hover:text-fg"
             title="Cancel (Esc)"
           >
-            <X size={12} /> Cancel
+            <X size={12} /> Stop
           </button>
         )}
       </div>

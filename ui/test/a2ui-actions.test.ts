@@ -122,4 +122,35 @@ describe('A2UI action round-trips', () => {
     expect(patch).toBeTruthy()
     expect(calls.some((c) => c.url === '/api/memory/entries' && c.init?.method === 'POST')).toBe(false)
   })
+
+  test('actionResponse follow-up uses active session threadId', async () => {
+    const { useSessionsStore } = await import('../src/stores/sessions')
+    useSessionsStore.setState({
+      sessions: [
+        {
+          id: 'sess-active',
+          title: 'Chat',
+          groupName: null,
+          profileId: 'default',
+          pinned: false,
+          archived: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+      activeSessionId: 'sess-active',
+    })
+    const { sendA2UIAction } = await import('../src/lib/a2ui/actions')
+    await sendA2UIAction('surf-1', 'use_skill', { name: 'demo' }, 'sess-active')
+    const agui = calls.find((c) => c.url.includes('/agui') && c.init?.method === 'POST')
+    expect(agui).toBeTruthy()
+    const body = JSON.parse(String(agui!.init?.body ?? '{}')) as {
+      threadId: string
+      forwardedProps?: { profileId?: string }
+      state: { a2uiAction: { action: string } }
+    }
+    expect(body.threadId).toBe('sess-active')
+    expect(body.forwardedProps?.profileId).toBe('default')
+    expect(body.state.a2uiAction.action).toBe('use_skill')
+  })
 })

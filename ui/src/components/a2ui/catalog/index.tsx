@@ -9,6 +9,7 @@ import { MemoryEntryEditor } from '@app/components/a2ui/hermes-widgets/MemoryEnt
 import { CronSchedulePicker } from '@app/components/a2ui/hermes-widgets/CronSchedulePicker'
 import { DocumentRequestForm } from '@app/components/a2ui/hermes-widgets/DocumentRequestForm'
 import { FormRequestForm } from '@app/components/a2ui/hermes-widgets/FormRequestForm'
+import { DynamicForm } from '@app/components/a2ui/hermes-widgets/DynamicForm'
 import { FileDiff } from '@app/components/a2ui/hermes-widgets/FileDiff'
 
 /** SoT Phase 5 standard catalog component types (plus Hermes custom widgets). */
@@ -39,6 +40,7 @@ export const HERMES_WIDGET_TYPES: HermesCatalogComponentId[] = [
   'hermes:FileDiff',
   'hermes:DocumentRequestForm',
   'hermes:FormRequestForm',
+  'hermes:DynamicForm',
 ]
 
 const fieldClass =
@@ -344,6 +346,27 @@ export function renderCatalogComponent(
           submitAction={props.submitAction != null ? String(props.submitAction) : undefined}
           storageTarget={
             props.storageTarget != null ? String(props.storageTarget) : undefined
+          }
+          onAction={onAction}
+        />
+      )
+
+    case 'hermes:DynamicForm':
+      return (
+        <DynamicForm
+          title={props.title != null ? String(props.title) : undefined}
+          description={
+            props.description != null ? String(props.description) : undefined
+          }
+          fields={
+            Array.isArray(props.fields)
+              ? (props.fields as import('@app/components/a2ui/hermes-widgets/DynamicForm').DynamicFormField[])
+              : props.fields != null
+                ? String(props.fields)
+                : undefined
+          }
+          submitLabel={
+            props.submitLabel != null ? String(props.submitLabel) : undefined
           }
           onAction={onAction}
         />

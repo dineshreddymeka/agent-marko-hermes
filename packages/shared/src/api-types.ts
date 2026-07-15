@@ -510,6 +510,19 @@ export interface CapabilitiesResponse {
   retrievalMode: 'semantic' | 'lexical' | 'legacy'
   routing: 'legacy' | 'capabilities'
   agentLlm: AgentLlmHealthSnapshot
+  /**
+   * Hermes-direct extension: feature availability derived from live OpenAPI
+   * (`/openapi.json`). Next.js uses this to show/hide panels without hardcoding.
+   */
+  features?: Record<string, boolean>
+  /** Pointers to Hermes Swagger + schema for direct browser→backend discovery. */
+  openapi?: {
+    docsUrl: string
+    schemaUrl: string
+    pathCount: number
+    backend: string
+    direct: boolean
+  }
 }
 
 /** POST /api/capabilities and POST /api/capabilities/warm */

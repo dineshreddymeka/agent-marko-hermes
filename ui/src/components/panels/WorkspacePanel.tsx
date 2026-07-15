@@ -123,6 +123,8 @@ export function WorkspacePanel() {
     void highlightCode(fileContent.content, lang).then(setHtml)
   }, [fileContent, selectedPath])
 
+  const dirty = editing && draft !== (fileContent?.content ?? '')
+
   const save = useMutation({
     mutationFn: () => writeWorkspaceFile(selectedPath!, draft),
     onSuccess: () => {
@@ -141,10 +143,12 @@ export function WorkspacePanel() {
 
   const upload = useMutation({
     mutationFn: (file: File) => uploadWorkspaceFile(file),
-    onSuccess: () => {
+    onSuccess: (res) => {
       addToast({ title: 'Upload complete', variant: 'success' })
       void refetchTree()
       void queryClient.invalidateQueries({ queryKey: ['workspace-git', rootPath] })
+      const path = (res as { path?: string } | undefined)?.path
+      if (typeof path === 'string' && path) setSelectedPath(path)
     },
     onError: (err) =>
       addToast({
@@ -208,6 +212,8 @@ export function WorkspacePanel() {
     )
   }
 
+  const branch = cwdInfo?.branch?.trim() || undefined
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2 text-xs">
@@ -224,6 +230,8 @@ export function WorkspacePanel() {
             }`}
           >
             <GitBranch size={12} />
+            {branch ? <span className="max-w-[8rem] truncate">{branch}</span> : null}
+            {branch ? <span className="text-fg-muted">·</span> : null}
             {git.dirty ? `${git.files.length} changed` : 'Clean'}
           </span>
         ) : (
@@ -232,7 +240,8 @@ export function WorkspacePanel() {
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="ml-auto inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-fg hover:bg-canvas-subtle"
+          disabled={upload.isPending}
+          className="ml-auto inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-fg hover:bg-canvas-subtle disabled:opacity-50"
         >
           <Upload size={12} /> Upload
         </button>
@@ -267,7 +276,13 @@ export function WorkspacePanel() {
               }
               setExpanded(next)
             }}
-            onSelect={setSelectedPath}
+            onSelect={(path) => {
+              if (dirty) {
+                const ok = window.confirm('Discard unsaved changes?')
+                if (!ok) return
+              }
+              setSelectedPath(path)
+            }}
           />
         </div>
 
@@ -293,8 +308,8 @@ export function WorkspacePanel() {
                       <button
                         type="button"
                         onClick={() => save.mutate()}
-                        disabled={save.isPending}
-                        className="inline-flex items-center gap-1 rounded bg-accent px-2 py-1 text-xs text-white"
+                        disabled={save.isPending || !dirty}
+                        className="inline-flex items-center gap-1 rounded bg-accent px-2 py-1 text-xs text-white disabled:opacity-50"
                       >
                         <Save size={12} /> Save
                       </button>

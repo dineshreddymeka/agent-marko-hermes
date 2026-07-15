@@ -72,4 +72,27 @@ describe('A2UI processor', () => {
     expect(isHydratableA2uiRef(payload)).toBe(true)
     expect(isHydratableA2uiRef({ surfaceId: 'x' })).toBe(false)
   })
+
+  test('hydrates stacked components on one persisted surface', () => {
+    const payload = {
+      surfaceId: 'multi-form',
+      components: [
+        {
+          id: 'contact-form',
+          type: 'hermes:DynamicForm',
+          props: { title: 'Contact', fields: [] },
+        },
+        {
+          id: 'survey-form',
+          type: 'hermes:DynamicForm',
+          props: { title: 'Survey', fields: [] },
+        },
+      ],
+      complete: true,
+    }
+    hydrateA2uiFromRef(payload, 'session-3')
+    const surface = getSurface('multi-form')
+    expect(surface?.components).toHaveLength(2)
+    expect(surface?.components.map((c) => c.id)).toEqual(['contact-form', 'survey-form'])
+  })
 })

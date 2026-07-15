@@ -1,7 +1,6 @@
-import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
+import { describe, expect, test, beforeEach, afterEach } from 'vitest'
 import {
   createHermesSession,
-  hermesSearchHitToSearchResult,
   hermesSessionToDto,
   patchHermesSession,
 } from '../src/lib/hermes-adapters'
@@ -22,6 +21,7 @@ describe('hermes session adapters', () => {
     // @ts-expect-error test cleanup
     delete globalThis.window
   })
+
   test('hermesSessionToDto maps Hermes list rows', () => {
     const dto = hermesSessionToDto({
       id: 'sess-1',
@@ -37,14 +37,32 @@ describe('hermes session adapters', () => {
     expect(dto.profileId).toBe('default')
   })
 
-  test('hermesSearchHitToSearchResult maps FTS hits for mergeSessionSearch', () => {
-    const result = hermesSearchHitToSearchResult({
-      session_id: 'sess-2',
-      snippet: 'hello from fts',
-    })
-    expect(result.kind).toBe('message')
-    expect(result.sessionId).toBe('sess-2')
-    expect(result.snippet).toBe('hello from fts')
+  test('placeholder titles fall back to preview, else New chat (never Untitled)', () => {
+    expect(
+      hermesSessionToDto({
+        id: 'a',
+        title: null,
+        preview: 'How do I deploy Hermes on port 9119?',
+      }).title,
+    ).toBe('How do I deploy Hermes on port 9119?')
+
+    expect(
+      hermesSessionToDto({
+        id: 'b',
+        title: 'New chat',
+        preview: '  fix the sidebar titles  ',
+      }).title,
+    ).toBe('fix the sidebar titles')
+
+    expect(
+      hermesSessionToDto({
+        id: 'c',
+        title: 'Untitled',
+        preview: null,
+      }).title,
+    ).toBe('New chat')
+
+    expect(hermesSessionToDto({ id: 'd', title: '' }).title).toBe('New chat')
   })
 
   test('createHermesSession accepts Marko POST shape', async () => {
@@ -70,51 +88,26 @@ describe('hermes session adapters', () => {
 
   test('patchHermesSession merges dashboard PATCH response', async () => {
     globalThis.fetch = async () =>
-      new Response(JSON.stringify({ ok: true, title: 'Renamed', archived: true }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
+      new Response(
+        JSON.stringify({
+          id: 'sess-3',
+          title: 'Renamed',
+          archived: true,
+          started_at: 1_700_000_000,
+          last_active: 1_700_000_200,
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      )
 
-    const session = await patchHermesSession(
-      'sess-3',
-      { title: 'Renamed', archived: true },
-      {
-        id: 'sess-3',
-        title: 'Old',
-        groupName: null,
-        profileId: null,
-        pinned: false,
-        archived: false,
-        createdAt: '2026-01-01T00:00:00.000Z',
-        updatedAt: '2026-01-01T00:00:00.000Z',
-      },
-    )
+    const session = await patchHermesSession('sess-3', {
+      title: 'Renamed',
+      archived: true,
+    })
+    expect(session.id).toBe('sess-3')
     expect(session.title).toBe('Renamed')
     expect(session.archived).toBe(true)
-  })
-
-  test('patchHermesSession skips API for local-only fields', async () => {
-    let called = false
-    globalThis.fetch = async () => {
-      called = true
-      return new Response('{}', { status: 500 })
-    }
-
-    const session = await patchHermesSession(
-      'sess-4',
-      { pinned: true },
-      {
-        id: 'sess-4',
-        title: 'Chat',
-        groupName: null,
-        profileId: null,
-        pinned: false,
-        archived: false,
-        createdAt: '2026-01-01T00:00:00.000Z',
-        updatedAt: '2026-01-01T00:00:00.000Z',
-      },
-    )
-    expect(called).toBe(false)
-    expect(session.pinned).toBe(true)
   })
 })

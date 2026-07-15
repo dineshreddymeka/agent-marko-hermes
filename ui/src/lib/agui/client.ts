@@ -29,6 +29,12 @@ export function hasInFlightRun(): boolean {
   return Boolean(state.runId || activeRunPromise)
 }
 
+/** True when the given session owns the in-flight run in this tab. */
+export function isLiveRunOnSession(sessionId: string): boolean {
+  const state = useChatStore.getState()
+  return state.runSessionId === sessionId && hasInFlightRun()
+}
+
 /**
  * Recover from stale running state left behind by interrupted reloads/streams.
  * Returns true when state was repaired.
@@ -131,12 +137,14 @@ function finishLocalRun(
   state.clearStreamingState()
   if (error) state.setError(error)
   else state.setError(null)
-  state.setRunStatus(status)
+  state.setRunStatus(status === 'idle' ? 'idle' : 'error')
+  state.setRunId(null)
   if (status === 'idle') {
-    state.setRunId(null)
-    state.clearStage()
+    state.setStage('done')
+    globalThis.setTimeout(() => {
+      useChatStore.getState().clearStage()
+    }, 1200)
   } else {
-    state.setRunId(null)
     state.setStage('error')
   }
 }
@@ -214,6 +222,7 @@ export async function runAgent(input: {
   const httpAgent = getAgent(sessionId)
 
   chat.setRunId(runId)
+  chat.setRunSessionId(sessionId)
   chat.setRunStatus('running')
   chat.setError(null)
   chat.clearRunSteps()
@@ -245,12 +254,21 @@ export async function runAgent(input: {
     state: agentState,
     context: [],
   }
+  const forwardedProps =
+    input.profileId != null && String(input.profileId).trim() !== ''
+      ? { profileId: String(input.profileId).trim() }
+      : undefined
   const stopStartupWatchdog = startStartupWatchdog(runId)
 
   let runPromise: Promise<void> | null = null
   runPromise = (async () => {
     try {
-      await httpAgent.runAgent({ runId, tools: runInput.tools, context: runInput.context })
+      await httpAgent.runAgent({
+        runId,
+        tools: runInput.tools,
+        context: runInput.context,
+        ...(forwardedProps ? { forwardedProps } : {}),
+      })
       // Ignore completion if a newer run already replaced this one.
       if (useChatStore.getState().runId === runId) {
         finishLocalRun(runId, 'idle')
@@ -376,7 +394,7 @@ export async function saveApprovalConfig(
  */
 export async function loadSessionMessages(
   sessionId: string,
-  opts?: { signal?: AbortSignal },
+  opts?: { signal?: AbortSignal; stripStreaming?: boolean },
 ): Promise<void> {
   let messages: import('@hermes/shared').Message[]
   try {
@@ -397,7 +415,11 @@ export async function loadSessionMessages(
   // (navigate + StrictMode remount often fetch before the runtime insert commits).
   if (loaded.length === 0 && existing.length > 0) return
 
-  chat.setMessages(sessionId, mergeSessionMessages(loaded, existing))
+  let merged = mergeSessionMessages(loaded, existing)
+  if (opts?.stripStreaming) {
+    merged = merged.map((m) => (m.streaming ? { ...m, streaming: false } : m))
+  }
+  chat.setMessages(sessionId, merged)
 }
 
 /** Prefer server rows; keep local-only optimistic/streaming rows not yet on the server. */
@@ -448,8 +470,12 @@ export async function checkLiveRun(sessionId: string): Promise<boolean> {
     if (data.live && data.runId) {
       currentSessionId = sessionId
       getAgent(sessionId)
+      useChatStore.getState().setRunSessionId(sessionId)
       useChatStore.getState().setRunId(data.runId)
       useChatStore.getState().setRunStatus('running')
+      if (!useChatStore.getState().runStage) {
+        useChatStore.getState().setStage('writing')
+      }
       return true
     }
   } catch {
@@ -467,7 +493,9 @@ export function startLiveMessagePoll(sessionId: string): () => void {
       await loadSessionMessages(sessionId)
       const stillLive = await checkLiveRun(sessionId)
       if (!stillLive) {
-        useChatStore.getState().setRunStatus('idle')
+        const chat = useChatStore.getState()
+        chat.clearStreamingState()
+        chat.resetRun()
         stopped = true
         return
       }
