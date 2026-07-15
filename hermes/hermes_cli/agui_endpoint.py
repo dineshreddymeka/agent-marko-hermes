@@ -11,10 +11,10 @@ import asyncio
 import json
 import logging
 import os
-import queue
 import threading
+import time
 import uuid
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
@@ -201,26 +201,95 @@ def _persist_a2ui(db: Any, session_id: str, a2ui_payload: Dict[str, Any]) -> Non
         _log.debug("Failed to persist a2ui on message %s", target_id, exc_info=True)
 
 
+class _DeltaCoalescer:
+    """Batch per-token deltas into ~one-display-frame SSE events.
+
+    Called only from the agent worker thread (delta callbacks are
+    sequential), so no locking. Buffered text is flushed when the window
+    elapses, the buffer grows past MAX_CHARS, or any non-delta event is
+    emitted (see the flushing ``emit`` in ``_run_agent_sync``) — so event
+    ordering is preserved and a fragment is never held across a structural
+    event.
+    """
+
+    __slots__ = ("_emit", "_etype", "_message_id", "_buf", "_len", "_first_ts")
+
+    WINDOW_S = 0.016
+    MAX_CHARS = 512
+
+    def __init__(
+        self,
+        emit: Callable[[Dict[str, Any]], None],
+        etype: str,
+        message_id: str,
+    ) -> None:
+        self._emit = emit
+        self._etype = etype
+        self._message_id = message_id
+        self._buf: List[str] = []
+        self._len = 0
+        self._first_ts = 0.0
+
+    def add(self, delta: str) -> None:
+        if not self._buf:
+            self._first_ts = time.monotonic()
+        self._buf.append(delta)
+        self._len += len(delta)
+        if self._len >= self.MAX_CHARS or (
+            time.monotonic() - self._first_ts >= self.WINDOW_S
+        ):
+            self.flush()
+
+    def flush(self) -> None:
+        if not self._buf:
+            return
+        delta = "".join(self._buf)
+        self._buf.clear()
+        self._len = 0
+        self._emit(
+            {
+                "type": self._etype,
+                "messageId": self._message_id,
+                "delta": delta,
+            }
+        )
+
+
 def _run_agent_sync(
     *,
     input_data: RunAgentInput,
-    out_q: "queue.Queue[Optional[Dict[str, Any]]]",
+    emit_event: Callable[[Optional[Dict[str, Any]]], None],
     cancel: threading.Event,
 ) -> None:
     thread_id = input_data.threadId
     run_id = input_data.runId
     message_id = str(uuid.uuid4())
+    thinking_message_id = str(uuid.uuid4())
     user_text = _latest_user_text(input_data.messages)
     history = _history_for_agent(input_data.messages)
     profile = _profile_from_input(input_data)
     a2ui_action = _a2ui_action_from_state(input_data.state)
 
-    def emit(event: Dict[str, Any]) -> None:
+    # NOTE: RUN_STARTED is emitted by the async handler before this worker
+    # even spawns (TTFE ≈ one socket write) — do not emit it here.
+
+    def emit_raw(event: Dict[str, Any]) -> None:
         if cancel.is_set():
             return
-        out_q.put(event)
+        emit_event(event)
 
-    emit({"type": "RUN_STARTED", "threadId": thread_id, "runId": run_id})
+    text_co = _DeltaCoalescer(emit_raw, "TEXT_MESSAGE_CONTENT", message_id)
+    think_co = _DeltaCoalescer(
+        emit_raw, "THINKING_TEXT_MESSAGE_CONTENT", thinking_message_id
+    )
+
+    def emit(event: Dict[str, Any]) -> None:
+        # Flushing emit for every non-delta event: buffered deltas always
+        # hit the wire before any structural event (ENDs, tools, CUSTOM,
+        # RUN_FINISHED/ERROR), preserving AG-UI ordering.
+        think_co.flush()
+        text_co.flush()
+        emit_raw(event)
 
     # A2UI actionResponse follow-up: acknowledge without a full agent turn when
     # the user just submitted a form (create_cron / save / etc.).
@@ -257,7 +326,7 @@ def _run_agent_sync(
                 "result": {"final_response": ack, "a2uiAction": a2ui_action},
             }
         )
-        out_q.put(None)
+        emit_event(None)
         return
 
     if not user_text:
@@ -270,12 +339,11 @@ def _run_agent_sync(
                 "code": "empty_input",
             }
         )
-        out_q.put(None)
+        emit_event(None)
         return
 
     started_text = False
     started_thinking = False
-    thinking_message_id = str(uuid.uuid4())
     open_tool_calls: Dict[str, str] = {}
     emitted_a2ui: List[Dict[str, Any]] = []
 
@@ -325,13 +393,7 @@ def _run_agent_sync(
             return
         finish_thinking()
         ensure_text_start()
-        emit(
-            {
-                "type": "TEXT_MESSAGE_CONTENT",
-                "messageId": message_id,
-                "delta": delta,
-            }
-        )
+        text_co.add(delta)
 
     def on_reasoning_delta(delta: Optional[str]) -> None:
         if cancel.is_set():
@@ -339,13 +401,7 @@ def _run_agent_sync(
         if not isinstance(delta, str) or not delta:
             return
         ensure_thinking_start()
-        emit(
-            {
-                "type": "THINKING_TEXT_MESSAGE_CONTENT",
-                "messageId": thinking_message_id,
-                "delta": delta,
-            }
-        )
+        think_co.add(delta)
 
     def on_tool_start(tool_id: str, name: str, args: Any) -> None:
         if cancel.is_set():
@@ -656,19 +712,39 @@ def _run_agent_sync(
             os.environ.pop("HERMES_PLATFORM", None)
         else:
             os.environ["HERMES_PLATFORM"] = prev_platform
-        out_q.put(None)
+        emit_event(None)
 
 
 async def _event_stream(
     request: Request,
     input_data: RunAgentInput,
 ) -> AsyncIterator[str]:
-    out_q: queue.Queue[Optional[Dict[str, Any]]] = queue.Queue()
+    loop = asyncio.get_running_loop()
+    aq: "asyncio.Queue[Optional[Dict[str, Any]]]" = asyncio.Queue()
     cancel = threading.Event()
+
+    def emit_event(event: Optional[Dict[str, Any]]) -> None:
+        # Worker-thread side. ``None`` is the end-of-stream sentinel and must
+        # always be delivered, even after cancel, so the generator terminates.
+        try:
+            loop.call_soon_threadsafe(aq.put_nowait, event)
+        except RuntimeError:
+            # Event loop closed (server shutdown) — stop producing.
+            cancel.set()
+
+    # RUN_STARTED before the worker even spawns: TTFE ≈ one socket write, so
+    # the UI shows the working state immediately.
+    yield _sse(
+        {
+            "type": "RUN_STARTED",
+            "threadId": input_data.threadId,
+            "runId": input_data.runId,
+        }
+    )
 
     worker = threading.Thread(
         target=_run_agent_sync,
-        kwargs={"input_data": input_data, "out_q": out_q, "cancel": cancel},
+        kwargs={"input_data": input_data, "emit_event": emit_event, "cancel": cancel},
         name=f"agui-{input_data.runId[:8]}",
         daemon=True,
     )
@@ -676,14 +752,10 @@ async def _event_stream(
 
     try:
         while True:
-            if await request.is_disconnected():
-                cancel.set()
-            try:
-                event = await asyncio.to_thread(out_q.get, True, 0.25)
-            except queue.Empty:
-                if cancel.is_set() and not worker.is_alive():
-                    break
-                continue
+            # Zero-poll: wakes exactly once per event. On client disconnect
+            # starlette cancels this generator at the await point and the
+            # finally block runs immediately (vs the old 250 ms poll).
+            event = await aq.get()
             if event is None:
                 break
             yield _sse(event)

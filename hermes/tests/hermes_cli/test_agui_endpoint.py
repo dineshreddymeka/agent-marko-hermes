@@ -243,6 +243,99 @@ def test_agui_action_response_acks_without_agent(client):
     assert finished["result"]["a2uiAction"]["action"] == "create_cron"
 
 
+def test_agui_deltas_coalesce_and_flush_before_structural_events(client):
+    """C1: many small deltas batch into few SSE events; buffered text always
+    flushes before TOOL_CALL_* / TEXT_MESSAGE_END so ordering is preserved."""
+    token = _session_token()
+    n_deltas = 200
+    chunk = "x"
+
+    def _agent_factory(*_args, **kwargs):
+        stream = kwargs.get("stream_delta_callback")
+        tool_start = kwargs.get("tool_start_callback")
+        agent = MagicMock()
+
+        def run(*_a, **_k):
+            for _ in range(n_deltas):
+                stream(chunk)
+            # Structural event mid-stream: buffered deltas must flush first.
+            tool_start("tc-1", "noop_tool", {})
+            for _ in range(n_deltas):
+                stream(chunk)
+            return {"final_response": ""}
+
+        agent.run_conversation.side_effect = run
+        return agent
+
+    with patch("run_agent.AIAgent", side_effect=_agent_factory):
+        with client.stream(
+            "POST",
+            "/agui",
+            headers=_agui_headers(token),
+            json={
+                "threadId": "coalesce-thread",
+                "runId": "run-coalesce",
+                "messages": [{"id": "1", "role": "user", "content": "stream a lot"}],
+            },
+        ) as resp:
+            assert resp.status_code == 200
+            lines = [line for line in resp.iter_lines() if line.startswith("data:")]
+
+    events = [json.loads(line.removeprefix("data:").strip()) for line in lines]
+    types = [e.get("type") for e in events]
+
+    # No token lost to batching.
+    total_text = "".join(
+        e["delta"] for e in events if e.get("type") == "TEXT_MESSAGE_CONTENT"
+    )
+    assert total_text == chunk * (2 * n_deltas)
+
+    # Coalescing happened: far fewer content events than deltas.
+    n_content = types.count("TEXT_MESSAGE_CONTENT")
+    assert n_content < n_deltas  # 400 deltas → ≤ ~a few dozen events
+
+    # Ordering: all content before the tool call arrived on the wire before
+    # TOOL_CALL_START (flush-before-structural-event invariant).
+    tool_idx = types.index("TOOL_CALL_START")
+    text_before = "".join(
+        e["delta"]
+        for e in events[:tool_idx]
+        if e.get("type") == "TEXT_MESSAGE_CONTENT"
+    )
+    assert len(text_before) == n_deltas
+
+    # END events follow all content; run finishes.
+    assert types.index("TEXT_MESSAGE_END") > max(
+        i for i, t in enumerate(types) if t == "TEXT_MESSAGE_CONTENT"
+    )
+    assert types[-1] == "RUN_FINISHED"
+    assert types[0] == "RUN_STARTED"
+
+
+def test_delta_coalescer_unit():
+    from hermes_cli.agui_endpoint import _DeltaCoalescer
+
+    out = []
+    co = _DeltaCoalescer(out.append, "TEXT_MESSAGE_CONTENT", "m1")
+
+    # Below window + below MAX_CHARS: buffered, nothing emitted.
+    co.add("ab")
+    assert out == [] or len(out) <= 1  # window race tolerated
+    co.flush()
+    joined = "".join(e["delta"] for e in out)
+    assert joined == "ab"
+
+    # MAX_CHARS forces immediate flush.
+    out.clear()
+    co.add("y" * _DeltaCoalescer.MAX_CHARS)
+    assert len(out) == 1 and out[0]["delta"] == "y" * _DeltaCoalescer.MAX_CHARS
+
+    # flush() on empty buffer is a no-op.
+    out.clear()
+    co.flush()
+    assert out == []
+
+
 def test_patch_session_returns_marko_dto(client):
     token = _session_token()
     created = client.post(
