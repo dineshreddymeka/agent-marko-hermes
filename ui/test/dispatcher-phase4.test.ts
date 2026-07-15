@@ -167,6 +167,8 @@ describe('agui dispatcher Phase 4 events', () => {
   })
 
   test('TOOL_CALL associates parentMessageId and live args', () => {
+    useChatStore.getState().setRunId('r1')
+    useChatStore.getState().setRunStatus('running')
     useChatStore.getState().addMessage('s1', {
       id: 'asst-1',
       sessionId: 's1',

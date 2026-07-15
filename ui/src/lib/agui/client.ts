@@ -214,6 +214,7 @@ export async function runAgent(input: {
   const httpAgent = getAgent(sessionId)
 
   chat.setRunId(runId)
+  chat.setRunSessionId(sessionId)
   chat.setRunStatus('running')
   chat.setError(null)
   chat.clearRunSteps()
@@ -385,7 +386,7 @@ export async function saveApprovalConfig(
  */
 export async function loadSessionMessages(
   sessionId: string,
-  opts?: { signal?: AbortSignal },
+  opts?: { signal?: AbortSignal; stripStreaming?: boolean },
 ): Promise<void> {
   let messages: import('@hermes/shared').Message[]
   try {
@@ -406,7 +407,11 @@ export async function loadSessionMessages(
   // (navigate + StrictMode remount often fetch before the runtime insert commits).
   if (loaded.length === 0 && existing.length > 0) return
 
-  chat.setMessages(sessionId, mergeSessionMessages(loaded, existing))
+  let merged = mergeSessionMessages(loaded, existing)
+  if (opts?.stripStreaming) {
+    merged = merged.map((m) => (m.streaming ? { ...m, streaming: false } : m))
+  }
+  chat.setMessages(sessionId, merged)
 }
 
 /** Prefer server rows; keep local-only optimistic/streaming rows not yet on the server. */
@@ -457,6 +462,7 @@ export async function checkLiveRun(sessionId: string): Promise<boolean> {
     if (data.live && data.runId) {
       currentSessionId = sessionId
       getAgent(sessionId)
+      useChatStore.getState().setRunSessionId(sessionId)
       useChatStore.getState().setRunId(data.runId)
       useChatStore.getState().setRunStatus('running')
       if (!useChatStore.getState().runStage) {

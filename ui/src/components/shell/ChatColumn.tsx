@@ -60,7 +60,7 @@ export function ChatColumn({ sessionId }: ChatColumnProps) {
 
     void (async () => {
       try {
-        await loadSessionMessages(sessionId, { signal: ac.signal })
+        await loadSessionMessages(sessionId, { signal: ac.signal, stripStreaming: true })
         if (ac.signal.aborted) return
         const live = await checkLiveRun(sessionId)
         if (ac.signal.aborted) return
@@ -103,12 +103,12 @@ export function ChatColumn({ sessionId }: ChatColumnProps) {
         </div>
       </header>
 
-      <StageStrip />
+      <StageStrip sessionId={sessionId} />
       <ErrorBanner />
 
       <div className="relative min-h-0 flex-1">
         {messages.length > 0 ? (
-          <MessageList messages={messages} />
+          <MessageList messages={messages} sessionId={sessionId} />
         ) : showLoading ? (
           <MessageSkeletonList />
         ) : loadError ? (

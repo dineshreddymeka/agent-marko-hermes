@@ -41,12 +41,17 @@ export function Composer({ sessionId }: ComposerProps) {
 
   const runStatus = useChatStore((s) => s.runStatus)
   const runId = useChatStore((s) => s.runId)
+  const runSessionId = useChatStore((s) => s.runSessionId)
   const setTheme = useSettingsStore((s) => s.setTheme)
   const setModel = useSettingsStore((s) => s.setModel)
   const setActivePanel = useUiStore((s) => s.setActivePanel)
   const addToast = useUiStore((s) => s.addToast)
   const navigate = useNavigate()
-  const isRunning = runStatus === 'running' && hasInFlightRun() && Boolean(runId)
+  const isRunning =
+    runStatus === 'running' &&
+    hasInFlightRun() &&
+    Boolean(runId) &&
+    runSessionId === sessionId
 
   const filteredSlash = filterSlashCommands(text)
   const showSlash = slashOpen && filteredSlash.length > 0

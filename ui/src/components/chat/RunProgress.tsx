@@ -32,12 +32,14 @@ function statusCopy(kind: RunStageKind, toolName?: string): string {
 }
 
 /** Compact Cursor-like run status — shimmer while active, settle when done. */
-export function StageStrip() {
+export function StageStrip({ sessionId }: { sessionId?: string }) {
   const runStatus = useChatStore((s) => s.runStatus)
   const runStage = useChatStore((s) => s.runStage)
+  const runSessionId = useChatStore((s) => s.runSessionId)
   const runSteps = useChatStore((s) => s.runSteps)
   const now = useNow(250)
 
+  if (runSessionId != null && runSessionId !== sessionId) return null
   if (!runStage) return null
   if (runStatus !== 'running' && runStage.kind !== 'done' && runStage.kind !== 'error') return null
 

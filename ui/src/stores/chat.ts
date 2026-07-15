@@ -72,6 +72,8 @@ interface ChatState {
   toolCalls: Record<string, ToolCallState>
   runStatus: RunStatus
   runId: string | null
+  /** Session that owns the current run UI (null when viewing history or idle). */
+  runSessionId: string | null
   runSteps: RunStep[]
   runStage: RunStage | null
   stageHistory: Array<RunStage & { endedAt: number }>
@@ -95,6 +97,7 @@ interface ChatState {
   flushThinkingBuffer: (messageId: string) => void
   setRunStatus: (status: RunStatus) => void
   setRunId: (runId: string | null) => void
+  setRunSessionId: (sessionId: string | null) => void
   setStage: (kind: RunStageKind, toolName?: string) => void
   clearStage: () => void
   setError: (error: string | null) => void
@@ -240,6 +243,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   toolCalls: {},
   runStatus: 'idle',
   runId: null,
+  runSessionId: null,
   runSteps: [],
   runStage: null,
   stageHistory: [],
@@ -326,6 +330,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
   setRunStatus: (runStatus) => set({ runStatus }),
   setRunId: (runId) => set({ runId }),
+  setRunSessionId: (sessionId) => set({ runSessionId: sessionId }),
 
   setStage: (kind, toolName) =>
     set((s) => {
@@ -372,6 +377,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     set({
       runStatus: 'idle',
       runId: null,
+      runSessionId: null,
       runSteps: [],
       runStage: null,
       stageHistory: [],

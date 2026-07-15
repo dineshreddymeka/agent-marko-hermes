@@ -7,14 +7,17 @@ import { useChatStore } from '@app/stores/chat'
 
 interface MessageListProps {
   messages: ChatMessage[]
+  sessionId?: string
 }
 
-export function MessageList({ messages }: MessageListProps) {
+export function MessageList({ messages, sessionId }: MessageListProps) {
   const parentRef = useRef<HTMLDivElement>(null)
   const runStatus = useChatStore((s) => s.runStatus)
   const runStage = useChatStore((s) => s.runStage)
+  const runSessionId = useChatStore((s) => s.runSessionId)
   const toolCalls = useChatStore((s) => s.toolCalls)
   const stickToBottom = useRef(true)
+  const runAppliesToView = runSessionId != null && runSessionId === sessionId
 
   // Hide empty assistant placeholders (tool-only turns / empty thinking shells).
   const visible = messages.filter((m) => {
@@ -36,6 +39,7 @@ export function MessageList({ messages }: MessageListProps) {
       ['pending', 'streaming-args', 'executing'].includes(tc.status),
     )
   const showWorkingBubble =
+    runAppliesToView &&
     runStatus === 'running' &&
     Boolean(runStage) &&
     runStage?.kind !== 'done' &&
@@ -106,6 +110,7 @@ export function MessageList({ messages }: MessageListProps) {
           if (!message) return null
           const animateEnter =
             item.index === lastMessageIndex &&
+            runAppliesToView &&
             runStatus === 'running' &&
             Boolean(message.streaming)
           return (

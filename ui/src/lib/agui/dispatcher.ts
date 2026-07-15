@@ -40,11 +40,11 @@ import type { ChatMessage } from '@app/stores/chat'
 import type { AgentState } from '@app/types/hermes'
 import type { Operation } from 'fast-json-patch'
 
-/** Ignore lifecycle events from a superseded/aborted run. */
+/** Ignore lifecycle events from a superseded/aborted run or after session reset. */
 function isCurrentRun(eventRunId: string | null | undefined): boolean {
   if (eventRunId == null || eventRunId === '') return true
   const active = useChatStore.getState().runId
-  if (active == null) return true
+  if (active == null) return false
   return String(eventRunId) === active
 }
 
@@ -71,10 +71,13 @@ export function dispatchAguiEvent(event: BaseEvent, sessionId: string | null): v
   switch (event.type) {
     case EventType.RUN_STARTED: {
       const e = event as RunStartedEvent
-      // Client already set runId before the request; ignore late STARTED from an old run.
-      if (!isCurrentRun(e.runId)) break
+      const eventRun = e.runId != null ? String(e.runId) : null
+      const active = chat.runId
+      // Client usually sets runId before the request; reject late STARTED from an old run.
+      if (eventRun != null && active != null && active !== eventRun) break
       chat.setRunStatus('running')
       chat.setRunId(e.runId ?? chat.runId)
+      if (sessionId) chat.setRunSessionId(sessionId)
       chat.setError(null)
       chat.clearStage()
       chat.setStage('starting')
@@ -219,6 +222,8 @@ export function dispatchAguiEvent(event: BaseEvent, sessionId: string | null): v
 
     case EventType.TOOL_CALL_START: {
       const e = event as ToolCallStartEvent & { parentMessageId?: string }
+      if (chat.runStatus !== 'running') break
+      if (!isCurrentRun(e.runId != null ? String(e.runId) : undefined)) break
       chat.setStage('tool', e.toolCallName)
       if (e.toolCallId && e.toolCallName) {
         let messageId =

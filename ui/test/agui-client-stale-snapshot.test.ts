@@ -11,6 +11,7 @@ describe('AG-UI run message snapshot freshness', () => {
       toolCalls: {},
       runStatus: 'idle',
       runId: null,
+      runSessionId: null,
       runSteps: [],
       runStage: null,
       stageHistory: [],
