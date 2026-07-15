@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Validate docs/API_MAPPING.md covers every Marko frontend API path.
+"""Validate docs/marko-ui-features/API_MAPPING.md covers every Marko frontend API path.
 
 Checks:
   1. Every UI `/api/*` and `/agui` call appears in the canonical inventory
-     block inside docs/API_MAPPING.md (no missing docs).
+     block inside docs/marko-ui-features/API_MAPPING.md (no missing docs).
   2. Inventory entries that claim Hermes is mounted actually exist in
      live OpenAPI when HERMES_URL is reachable (optional, non-fatal warn
      for intentionally missing families).
@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
-MD_PATH = ROOT / "docs" / "API_MAPPING.md"
+MD_PATH = ROOT / "docs" / "marko-ui-features" / "API_MAPPING.md"
 UI_SRC = ROOT / "ui" / "src"
 
 INVENTORY_BEGIN = "<!-- BEGIN_API_INVENTORY -->"
@@ -382,7 +382,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"UI API paths discovered: {len(ui)}")
         print(f"Inventory paths in {MD_PATH.relative_to(ROOT)}: {len(inventory)}")
         if missing_docs:
-            print("\nMISSING from docs/API_MAPPING.md inventory:")
+            print("\nMISSING from docs/marko-ui-features/API_MAPPING.md inventory:")
             for p in missing_docs:
                 methods = ",".join(sorted(ui[p]))
                 print(f"  - {methods:12} {p}")

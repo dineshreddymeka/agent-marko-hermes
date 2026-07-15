@@ -69,7 +69,8 @@ Marko is served same-origin from Hermes. Chat hits `POST /agui` in-process.
 - **Preferred preview:** Hermes alone on `:9119` (static export + APIs). **No proxy.**
 - **Optional HMR:** Next on `:5173` rewrites `/api/*` + `/agui` → Hermes `:9119`.
 - **Discovery:** Hermes Swagger at `/docs` + schema `/openapi.json`. Marko reads `/api/capabilities` (OpenAPI-derived `features` map) to know which panels/APIs exist.
-- **Full route map:** see [`docs/API_MAPPING.md`](docs/API_MAPPING.md) for every frontend↔backend path, aliases, missing routes to port from another Hermes, and an OpenAPI diff checklist.
+- **Full route map:** see [`docs/marko-ui-features/API_MAPPING.md`](docs/marko-ui-features/API_MAPPING.md) for every frontend↔backend path, aliases, missing routes to port from another Hermes, and an OpenAPI diff checklist.
+- **Feature docs (titles, forms, working chrome, AG-UI, porting plan):** [`docs/marko-ui-features/`](docs/marko-ui-features/README.md)
 - **Validate the map:** `npm run validate:api-map` fails if any UI `/api/*` or `/agui` call is missing from the MD inventory.
 
 ### AG-UI + A2UI
