@@ -31,7 +31,7 @@ describe('A2UI standard catalog (SoT Phase 5)', () => {
     expect(STANDARD_CATALOG_TYPES).toHaveLength(17)
   })
 
-  test('exports six Hermes widgets', () => {
+  test('exports the Hermes widget catalog', () => {
     expect(HERMES_WIDGET_TYPES).toEqual([
       'hermes:SkillCard',
       'hermes:MemoryEntryEditor',
@@ -39,6 +39,7 @@ describe('A2UI standard catalog (SoT Phase 5)', () => {
       'hermes:FileDiff',
       'hermes:DocumentRequestForm',
       'hermes:FormRequestForm',
+      'hermes:DynamicForm',
     ])
   })
 
