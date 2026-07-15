@@ -335,12 +335,33 @@ then set capability prefixes so the rail/panels light up automatically.
 
 ---
 
+## Planned — AgentCore Gateway (not in UI yet)
+
+Plan: [BEDROCK_AGENTCORE_INTEGRATION.md](./BEDROCK_AGENTCORE_INTEGRATION.md).
+Do **not** add these to the inventory fence until Marko calls them.
+
+| Method | Path | Consumer |
+|--------|------|----------|
+| GET | `/api/gateway/status` | Connections Gateway section |
+| PUT | `/api/gateway/connection` | Connect region + gateway id |
+| POST | `/api/gateway/sync` | Sync AWS mirror + opt-ins |
+| GET | `/api/gateway/opt-ins` | Unified opt-in table |
+| PUT | `/api/gateway/opt-ins/{id}` | Toggle + mirror |
+| PUT | `/api/gateway/opt-ins/bulk` | Bulk toggle |
+| GET | `/api/gateway/runtimes` | Read-only runtime list |
+| GET | `/api/gateway/memories` | Read-only memory list |
+
+DTOs use AWS camelCase field names (`gatewayId`, `agentRuntimeArn`, …).
+
+---
+
 ## Hermes OpenAPI paths not used by Marko
 
 Hermes exposes ~250 routes. Marko only uses the tables above. Everything else
-(ops, gateway, messaging platforms, plugins hub, curator, credentials pool,
+(ops, messaging platforms, plugins hub, curator, credentials pool,
 dashboard themes, etc.) is **Hermes-native** and does not need UI wiring unless
-you intentionally add a Marko panel.
+you intentionally add a Marko panel. (Planned Marko Gateway routes above are
+new BFF endpoints, not the existing Hermes-native gateway ops paths.)
 
 Diff strategy:
 

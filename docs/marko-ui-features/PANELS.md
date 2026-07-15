@@ -12,7 +12,7 @@ Each IconRail destination is a focused panel backed by Hermes REST (or explicitl
 | `workspace` | `WorkspacePanel.tsx` | `/api/fs/*`, `/api/git/status` | FS + git |
 | `skills` | `SkillsPanel.tsx` | `/api/skills*` | Skills registry |
 | `memory` | `MemoryPanel.tsx` | `/api/memory/*` | `marko_memory_api.py` |
-| `connections` | `ConnectionsPanel.tsx` | `/api/mcp/servers*` | MCP SQLite registry |
+| `connections` | `ConnectionsPanel.tsx` | `/api/mcp/servers*`, planned `/api/gateway/*` | MCP registry + AgentCore Gateway opt-ins |
 | `cron` | `CronPanel.tsx` | `/api/cron/jobs*` | Cron store (+ aliases) |
 | `kanban` | `KanbanPanel.tsx` | `/api/kanban*` | `marko_kanban.py` |
 | `profiles` | `ProfilesPanel.tsx` | `/api/profiles*` (`?marko=1`) | `marko_profiles_api.py` |
@@ -20,6 +20,12 @@ Each IconRail destination is a focused panel backed by Hermes REST (or explicitl
 | `office` / `briefing` | `DescopedPanel` / stubs | `/api/office/*` **often missing** | — |
 
 Route: `ui/src/routes/panel.$name.tsx`.
+
+**Scroll shell (planned):** every panel route uses `overflow-hidden` on the
+page root; list bodies sit in shared `PanelChrome` with
+`min-h-0 flex-1 overflow-y-auto` so Sessions / Skills / Memory / Connections /
+Cron / Kanban / Profiles / Settings all scroll correctly. See
+[BEDROCK_AGENTCORE_INTEGRATION.md](./BEDROCK_AGENTCORE_INTEGRATION.md) §4b.
 
 ## Common patterns
 
@@ -99,6 +105,14 @@ Also used by A2UI `MemoryEntryEditor` actions (`save` / `delete`).
 - Tool allowlist toggles (`hermesMcpNextToolWhitelist`).
 - Events/log stream if available.
 - Capabilities warm button.
+
+**AgentCore Gateway (planned)** — see [BEDROCK_AGENTCORE_INTEGRATION.md](./BEDROCK_AGENTCORE_INTEGRATION.md):
+
+- Connect (region + gateway id) → `PUT /api/gateway/connection`; status from `GET /api/gateway/status`.
+- Sync → `POST /api/gateway/sync` (AWS mirror tables + rebuild `gateway_opt_ins`).
+- **One scrollable opt-in table:** Type \| Name \| Target/Runtime \| AWS status \| Opt-in.
+- Filters: All / MCP / Tools / Skills / Plugins.
+- Toggle → `PUT /api/gateway/opt-ins/{id}` (+ bulk); enabled MCP mirrors into MCP panel; skills into Skills panel.
 
 **Files:** `ConnectionsPanel.tsx`, `McpSubPanel.tsx`, `hermes-adapters.ts` MCP helpers
 
