@@ -275,7 +275,55 @@ save ~25 MB at enormous churn — rejected). Guardrails instead:
 
 ---
 
-## 7. Verification
+## 7. SQLite at enterprise level (all state in SQLite — by design)
+
+All persistent state (sessions, messages, titles, A2UI surfaces, FTS search)
+lives in per-profile SQLite databases (`~/.hermes/profiles/<p>/state.db`).
+This is the right architecture for a single-node harness, and the existing
+`SessionDB` layer (`hermes_state.py`) is already production-hardened:
+
+| Already implemented | Where |
+|---|---|
+| WAL journal mode with rollback-journal fallback on non-WAL filesystems | `apply_wal_with_fallback` |
+| App-level write retry with random jitter (15×, 20–150 ms) to avoid busy-handler convoys across processes | `SessionDB._WRITE_*` |
+| Explicit `BEGIN IMMEDIATE` transactions (`isolation_level=None`), `foreign_keys=ON` | `SessionDB.__init__` |
+| Passive WAL checkpoint every 50 writes; FTS5 segment merge every 1000 writes | `_CHECKPOINT_EVERY_N_WRITES`, `_OPTIMIZE_EVERY_N_WRITES` |
+| Malformed-schema detection + automatic backup-then-repair of `sqlite_master` | `repair_state_db_schema` |
+| Read-only URI connections for cross-profile reads (no write locks from sidebar polling) | `SessionDB(read_only=True)` |
+| Natural sharding: one DB per profile | `marko_session.open_session_db` |
+
+**Capacity reality check:** the chat workload writes kilobyte-scale rows at
+human message rates. WAL SQLite sustains thousands of write TPS on one node;
+the harness will hit LLM-provider limits long before SQLite limits. WAL's
+single-writer serialization is a non-issue at this rate, and readers never
+block.
+
+### Gaps to close for enterprise posture
+
+- **P0 — D1: Scheduled online backups.** Nothing backs up `state.db` today.
+  Add either a cron `VACUUM INTO '<backup-path>'` snapshot (atomic, works on
+  a live DB) or [Litestream](https://litestream.io/) for continuous WAL
+  replication to S3-compatible storage with point-in-time recovery.
+- **P1 — D2: Set `synchronous=NORMAL` under WAL.** Confirmed absent —
+  connections run at the default `FULL` (an fsync per commit).
+  `NORMAL` in WAL mode is corruption-safe and fsyncs once per checkpoint
+  instead, cutting per-write latency; worst case on power loss is the last
+  few committed transactions, which for chat state is acceptable. Add it in
+  `apply_wal_with_fallback` (only when WAL actually engaged — keep `FULL`
+  on the DELETE-journal fallback path).
+- **P1 — D3: Proactive integrity checks.** Run `PRAGMA quick_check` at
+  startup and on a daily cron tick, logging failures loudly — today
+  corruption is only discovered when it trips the repair path.
+- **Known limit (accepted):** no hot failover — SQLite is single-node. If
+  multi-server HA is ever required, replicate with LiteFS or move shared
+  tables to a server DB. For the single-box deployment this harness
+  targets, this does not apply.
+
+The §2 L4 item (per-profile handle reuse) aligns with this: `SessionDB` is
+documented as thread-safe for "multiple reader threads, single writer" — it
+is designed to be held open per profile, not reopened per request.
+
+## 8. Verification
 
 1. **Harness timing**: extend `scripts/smoke_agui.py` to print TTFE, TTFT,
    total events, and wall time per run. Run before/after each P0.
@@ -288,13 +336,16 @@ save ~25 MB at enormous churn — rejected). Guardrails instead:
    and thread count returns to baseline.
 5. **Startup**: `time bash scripts/start-hermes-ui.sh` with warm stamp;
    target < 2 s to healthy.
+6. **Durability drill**: kill -9 the server mid-stream, restart, and assert
+   `PRAGMA quick_check` passes and the session history is intact; restore a
+   `VACUUM INTO` snapshot and verify sessions load from it.
 
-## 8. Sequencing
+## 9. Sequencing
 
 | Order | Items | Why first |
 |---|---|---|
 | 1 | L1, C1 | Biggest latency + CPU wins, one file each, independently testable |
-| 2 | L2, L3, T1, T2 | First-run latency + startup, all low-risk |
-| 3 | C3, S1, L4 | Drop-in dependency + headers + DB pooling |
+| 2 | L2, L3, T1, T2, D1 | First-run latency + startup + backups, all low-risk |
+| 3 | C3, S1, L4, D2, D3 | Drop-in dependency + headers + DB pooling + durability checks |
 | 4 | C2, C4, S2, S3, T3, T4 | Client render + cancellation + polish |
 | 5 | L5 | Only after profiling proves `AIAgent` init is worth caching |
