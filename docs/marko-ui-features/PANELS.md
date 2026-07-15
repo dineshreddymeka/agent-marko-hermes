@@ -108,7 +108,7 @@ Also used by A2UI `MemoryEntryEditor` actions (`save` / `delete`).
 
 **AgentCore Gateway (planned)** — see [BEDROCK_AGENTCORE_INTEGRATION.md](./BEDROCK_AGENTCORE_INTEGRATION.md):
 
-- Connect (region + gateway id) → `PUT /api/gateway/connection`; status from `GET /api/gateway/status`.
+- Connect (**region + gateway URL**, optional gateway id) → `PUT /api/gateway/connection`; status from `GET /api/gateway/status`.
 - Sync → `POST /api/gateway/sync` (AWS mirror tables + rebuild `gateway_opt_ins`).
 - **One scrollable opt-in table:** Type \| Name \| Target/Runtime \| AWS status \| Opt-in.
 - Filters: All / MCP / Tools / Skills / Plugins.

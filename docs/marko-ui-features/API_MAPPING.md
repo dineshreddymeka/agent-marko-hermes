@@ -343,7 +343,7 @@ Do **not** add these to the inventory fence until Marko calls them.
 | Method | Path | Consumer |
 |--------|------|----------|
 | GET | `/api/gateway/status` | Connections Gateway section |
-| PUT | `/api/gateway/connection` | Connect region + gateway id |
+| PUT | `/api/gateway/connection` | Connect region + `gatewayUrl` (optional `gatewayId`) |
 | POST | `/api/gateway/sync` | Sync AWS mirror + opt-ins |
 | GET | `/api/gateway/opt-ins` | Unified opt-in table |
 | PUT | `/api/gateway/opt-ins/{id}` | Toggle + mirror |
