@@ -73,6 +73,18 @@ Empty user text → `RUN_ERROR` code `empty_input` (after STARTED).
 | `STATE_SNAPSHOT` / `STATE_DELTA` | state / ops | agentState store |
 | `MESSAGES_SNAPSHOT` | messages[] | replace session transcript |
 
+### Delta granularity (server-side coalescing)
+
+`TEXT_MESSAGE_CONTENT` and `THINKING_TEXT_MESSAGE_CONTENT` deltas are
+**coalesced server-side into ~16 ms frames** (512-char cap) — one event may
+carry many LLM tokens. Clients must treat `delta` as an arbitrary-length
+append, never assume one token per event. Ordering is guaranteed: all
+buffered deltas are flushed to the wire before any structural event
+(`*_END`, `TOOL_CALL_*`, `CUSTOM`, `RUN_FINISHED`, `RUN_ERROR`). See
+[HARNESS_PERFORMANCE.md](./HARNESS_PERFORMANCE.md) §2. Also per that spec,
+`RUN_STARTED` is emitted by the HTTP handler before the agent worker
+spawns, so it arrives within milliseconds of the POST.
+
 ## CUSTOM events (Marko)
 
 Constants: `packages/shared/src/agui-events.ts` (`HermesCustomEvents`)

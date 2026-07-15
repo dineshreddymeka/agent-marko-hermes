@@ -29,7 +29,7 @@ All **Agent-Marko ↔ Hermes one-hop** feature docs live in this folder. Use the
 | [APP_SHELL.md](./APP_SHELL.md) | Layout, routing, shortcuts, theme, toasts |
 | [COMPOSER_AND_MARKDOWN.md](./COMPOSER_AND_MARKDOWN.md) | Composer, slash commands, streaming markdown |
 | [PANELS.md](./PANELS.md) | Workspace, Skills, Memory, MCP, Cron, Kanban, Profiles, Settings |
-| [HARNESS_PERFORMANCE.md](./HARNESS_PERFORMANCE.md) | Agentic harness perf plan: ultralow latency, low CPU, measured baselines |
+| [HARNESS_PERFORMANCE.md](./HARNESS_PERFORMANCE.md) | Agentic harness perf spec: ultralow latency, low CPU — implemented items, measured results, remaining work |
 
 ## Local preview (this repo)
 

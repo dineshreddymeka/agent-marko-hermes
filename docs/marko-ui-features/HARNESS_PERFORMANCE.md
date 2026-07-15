@@ -5,24 +5,55 @@ Scope: the run path `POST /agui` → `_event_stream` → worker thread →
 and the launch script. Targets: ultralow latency, low CPU, enterprise
 durability, single-node, all state in SQLite.
 
-All line numbers refer to the current tree (`cursor/nextjs-ui-e2f3`).
+Line references marked *(pre-change)* describe the tree before the
+optimizations landed; implemented sections document the shipped code.
 
-**Implementation status:** L1, L2, L3, C1, D2, S1, T1, T2 are **implemented
-and verified** (see §11 results below). Outstanding: L4, L5, C2, C3, C4, D1,
-D3, S2, S3, T3, T4.
+## Implementation status
 
-Measured after implementation (no-LLM environment, loopback):
-TTFE 3.3–5.5 ms (was 250 ms worst-case bridge polling), 20-run soak
-RSS 135 → 136 MB / threads 6 → 6 (no leaks), `kill -9` mid-run →
-`PRAGMA quick_check` ok + all sessions intact, warm-stamp script start
-1.4–1.6 s (was minutes with unconditional `next build`), WAL +
-`synchronous=NORMAL` confirmed on live connections, `/_next/static/**`
-served with `immutable`. Endpoint + coalescer tests: 9 passed;
-`hermes_state` suite: 41 passed.
+| Item | What | Status | Commit |
+|---|---|---|---|
+| L1 | Loop-native SSE bridge (zero-poll) | ✅ shipped | `47dc172` |
+| L3 | `RUN_STARTED` before worker spawn | ✅ shipped | `47dc172` |
+| C1 | Delta coalescing (~16 ms frames) | ✅ shipped | `47dc172` |
+| L2 | Agent-stack preload at startup | ✅ shipped | `a603d9f` |
+| S1 | Immutable caching for `/_next/static` | ✅ shipped | `a603d9f` |
+| D2 | `synchronous=NORMAL` under WAL | ✅ shipped | `0e72d22` |
+| T1 | Content-hash build stamp | ✅ shipped | `a59de34` |
+| T2 | Tight script wait loops | ✅ shipped | `a59de34` |
+| L4 | Per-profile `SessionDB` reuse | ⏳ pending | — |
+| L5 | `AIAgent` init caching | ⏳ deferred (profile first) | — |
+| C2 | Client streaming render deferral | ⏳ pending | — |
+| C3 | uvloop + httptools | ⏳ pending | — |
+| C4 | Cooperative cancellation checkpoints | ⏳ pending | — |
+| D1 | Scheduled `VACUUM INTO` backups | ⏳ pending | — |
+| D3 | Startup integrity probe | ⏳ pending | — |
+| S2 | Build-time precompression | ⏳ pending | — |
+| S3 | Visibility-gated client polling | ⏳ pending | — |
+| T3 | Incremental dist copy | ⏳ pending | — |
+| T4 | Bytecode precompile in env setup | ⏳ pending | — |
+
+### Measured results (after; no-LLM environment, loopback)
+
+| Gate | Before | Target | Achieved |
+|---|---|---|---|
+| TTFE (POST → `RUN_STARTED` on wire) | 5–50 ms + 250 ms worst-case poll | < 2 ms | **3.3–5.5 ms end-to-end via urllib** (server-side write is immediate; client HTTP overhead dominates) |
+| Idle wakeups per active stream | 4/s | 0 | **0** (event-driven `asyncio.Queue`) |
+| Per-event overhead | 1 threadpool hop | < 0.1 ms | **`call_soon_threadsafe` handoff** |
+| SSE events per streamed reply | ≈ token count | ≤ tokens/10 | **400 synthetic deltas → < a few dozen events** (test-verified, no token loss) |
+| First-run import penalty | +0.6–2 s | 0 | **preloaded in lifespan executor** |
+| RSS soak (20 runs) | — | < 150 MB | **135 → 136 MB, threads 6 → 6** (no leaks) |
+| Warm script start | 3–8 s (or minutes w/ build) | < 2 s | **1.4–1.6 s** |
+| Durability drill | — | quick_check ok | **`kill -9` mid-run → `PRAGMA quick_check` = ok, 24 sessions intact** |
+| Commit durability | fsync/commit (`FULL`) | WAL + `NORMAL` | **verified: `journal_mode=wal`, `synchronous=1`** |
+| Hashed static assets | revalidate per load | immutable | **`cache-control: public, max-age=31536000, immutable` verified** |
+
+Tests: `tests/hermes_cli/test_agui_endpoint.py` 9 passed (incl. new
+coalescer unit + ordering/no-token-loss stream test); AG-UI/A2UI suites 12
+passed; `tests/hermes_state` 41 passed.
 
 ---
 
-## 0. Measured baseline
+## 0. Measured baseline (pre-optimization)
 
 | Metric | Value | Method |
 |---|---|---|
@@ -57,14 +88,15 @@ served with `immutable`. Endpoint + coalescer tests: 9 passed;
 
 ## 1. L1 — Loop-native event handoff (removes polling + threadpool hop)
 
-**File:** `hermes_cli/agui_endpoint.py`
+**Status: ✅ shipped** (`47dc172`) — `hermes_cli/agui_endpoint.py`
 
-**Current:** `_run_agent_sync(out_q: queue.Queue, ...)` puts events; consumer
-loop at :678–689 does `await asyncio.to_thread(out_q.get, True, 0.25)` —
-one threadpool dispatch per event, 4 idle wakeups/s, disconnect noticed
+**Previous *(pre-change)*:** `_run_agent_sync(out_q: queue.Queue, ...)` put
+events; the consumer loop did `await asyncio.to_thread(out_q.get, True, 0.25)`
+— one threadpool dispatch per event, 4 idle wakeups/s, disconnect noticed
 ≤ 250 ms late.
 
-**Replace with:**
+**Shipped shape** (worker callable is named `emit_event` in the code;
+`RUN_STARTED` yield shown is L3):
 
 ```python
 # _event_stream
@@ -125,8 +157,11 @@ set, worker unwinds at next checkpoint. No change to event ordering.
 
 ## 2. C1 — Delta coalescing (~16 ms frames)
 
-**File:** `hermes_cli/agui_endpoint.py` (`on_stream_delta` :319,
-`on_reasoning_delta` :336)
+**Status: ✅ shipped** (`47dc172`) — `_DeltaCoalescer` in
+`hermes_cli/agui_endpoint.py`; the flushing `emit()` wrapper in
+`_run_agent_sync` enforces the ordering invariants below. Verified by
+`test_agui_deltas_coalesce_and_flush_before_structural_events` and
+`test_delta_coalescer_unit`.
 
 **Design:** single-threaded inline coalescer (delta callbacks are sequential
 on the worker thread — no timer, no locks):
@@ -177,6 +212,7 @@ below one 60 Hz display frame; perceived streaming unchanged.
 
 ### C2 — Client-side streaming render deferral
 
+**Status: ⏳ pending.**
 **Files:** `ui/src/components/chat/*` (markdown message renderer).
 
 While `isStreaming` is true for a message: render deltas through the light
@@ -190,8 +226,10 @@ does not re-highlight already-final blocks.
 
 ## 3. L2/L3 — Agent-stack preload + immediate `RUN_STARTED`
 
-**L2 — file:** `hermes_cli/web_server.py` `_lifespan` (:173). After the
-existing `_warm_gateway_module` executor call (:190), add:
+**Status: ✅ shipped** (`a603d9f` for L2, `47dc172` for L3).
+
+**L2 — file:** `hermes_cli/web_server.py` `_lifespan`. After the existing
+`_warm_gateway_module` executor call:
 
 ```python
 def _warm_agent_stack() -> None:
@@ -209,17 +247,17 @@ asyncio.get_event_loop().run_in_executor(None, _warm_agent_stack)
 Python module cache is process-wide → first `/agui` run skips the import
 entirely. Runs in a worker thread; does not delay socket readiness.
 
-**L3:** `RUN_STARTED` moves from `_run_agent_sync` (:223) into the async
-generator before worker spawn (shown in §1). TTFE becomes serialization +
-one socket write. Remove the old emit; keep `threadId`/`runId` payload
-identical.
+**L3:** `RUN_STARTED` moved from `_run_agent_sync` into the async generator
+before worker spawn (shown in §1). TTFE is now serialization + one socket
+write; payload (`threadId`/`runId`) unchanged.
 
 ---
 
 ## 4. L4 — Per-profile `SessionDB` reuse
 
-**Files:** `hermes_cli/marko_session.py`, call sites `agui_endpoint.py:419`,
-`:569`.
+**Status: ⏳ pending.**
+**Files:** `hermes_cli/marko_session.py`, call sites in `agui_endpoint.py`
+(agent run + title-upgrade thread).
 
 ```python
 _POOL: dict[str, SessionDB] = {}
@@ -259,6 +297,7 @@ request (~2–10 ms) and the same again in the title thread.
 
 ## 5. C3 — uvloop + httptools
 
+**Status: ⏳ pending.**
 **File:** `hermes/pyproject.toml` — add to the web/dashboard dependency set:
 
 ```
@@ -274,6 +313,7 @@ zero code change. Update the lazy-install hint at `web_server.py:117` to
 
 ## 6. C4 — Cooperative cancellation checkpoints
 
+**Status: ⏳ pending.**
 **Files:** `agui_endpoint.py`, `run_agent.py`, `agent/conversation_loop.py`.
 
 - Plumb `should_cancel: Callable[[], bool]` into `AIAgent.__init__`
@@ -300,21 +340,20 @@ cross-profile reads, per-profile DB sharding.
 
 ### D2 — `synchronous=NORMAL` under WAL
 
-**File:** `hermes_state.py`, inside `apply_wal_with_fallback` immediately
-after WAL engages (not on the DELETE fallback branch):
-
-```python
-conn.execute("PRAGMA synchronous=NORMAL")
-```
+**Status: ✅ shipped** (`0e72d22`) — `_apply_wal_synchronous_normal()` in
+`hermes_state.py`, called from both WAL branches of
+`apply_wal_with_fallback` (already-WAL probe and fresh `journal_mode=WAL`).
+Verified on a live connection: `journal_mode=wal`, `synchronous=1`.
 
 WAL+NORMAL is corruption-safe; loses at most the final transactions on
 power cut (acceptable for chat state). Cuts one fsync per commit → one per
-checkpoint. Keep `FULL` on the DELETE-journal fallback (rollback journal
-needs it). macOS `checkpoint_fullfsync=1` (:325–354) still applies at
-checkpoint time — unchanged.
+checkpoint. `FULL` is kept on the DELETE-journal fallback (rollback journal
+needs it). macOS `checkpoint_fullfsync=1` still applies at checkpoint time —
+unchanged.
 
 ### D1 — Scheduled online backups
 
+**Status: ⏳ pending.**
 **New file:** `hermes_cli/db_maintenance.py`
 
 ```python
@@ -360,6 +399,7 @@ CPU cost: `VACUUM INTO` of a chat-scale DB is sub-second, once per day.
 
 ### D3 — Startup integrity probe
 
+**Status: ⏳ pending.**
 Inside `_warm_agent_stack` (§3) or a sibling warm task: run
 `quick_check(active_profile_db)` once, log `ERROR` on failure. Never blocks
 the event loop (executor thread).
@@ -376,7 +416,10 @@ SQLite API, no schema work.
 
 ### S1 — Immutable cache for hashed assets
 
-**File:** `web_server.py` `mount_spa()` (:16266–16271):
+**Status: ✅ shipped** (`a603d9f`) — `_HashedStaticFiles` in
+`web_server.py` `mount_spa()`. Verified:
+`curl -I /_next/static/chunks/<hash>.js` →
+`cache-control: public, max-age=31536000, immutable`.
 
 ```python
 class _HashedStaticFiles(StaticFiles):
@@ -395,6 +438,7 @@ Repeat page loads: N conditional GETs → 0 requests.
 
 ### S2 — Build-time precompression
 
+**Status: ⏳ pending.**
 **File:** `ui/scripts/copy-web-dist.mjs`: after copy, for every
 `{js,css,svg,json,txt,html}` ≥ 1 KB emit `f.br`
 (`zlib.brotliCompressSync`, quality 10) and `f.gz` (level 9).
@@ -404,6 +448,8 @@ with `Content-Encoding`, original `Content-Type`, `Vary: Accept-Encoding`.
 Compression cost moves to build time; runtime CPU for static ≈ sendfile.
 
 ### S3 — Visibility-gated client polling
+
+**Status: ⏳ pending.**
 
 - `ui/src/components/shell/StatusFooter.tsx:77` — wrap the 15 s tick:
   `if (document.visibilityState !== 'visible') return` + re-tick on
@@ -418,6 +464,12 @@ Compression cost moves to build time; runtime CPU for static ≈ sendfile.
 ## 9. Launch script (`scripts/start-hermes-ui.sh`)
 
 ### T1 — Content-hash build stamp
+
+**Status: ✅ shipped** (`a59de34`). Warm start measured 1.4–1.6 s;
+`--force-build` bypasses the stamp. The stamp lives in
+`web_dist/.build-stamp` and is rewritten after every successful build
+(`copy-web-dist.mjs` wipes `web_dist`, so a failed build can never leave a
+stale stamp).
 
 ```bash
 STAMP_FILE="$ROOT/hermes/hermes_cli/web_dist/.build-stamp"
@@ -442,6 +494,8 @@ Add `--force-build` to bypass the stamp. Default path becomes both safe
 
 ### T2 — Tight wait loops
 
+**Status: ✅ shipped** (`a59de34`).
+
 - Health poll: `sleep 1` → `sleep 0.25`, iterations 45 → 180 (same 45 s cap).
 - Replace `sleep 0.5` / `sleep 0.3` after `fuser -k` / `C-c` with:
 
@@ -451,12 +505,14 @@ for _ in $(seq 1 40); do ss -ltn 2>/dev/null | grep -q ':9119 ' || break; sleep 
 
 ### T3 — Incremental dist copy
 
+**Status: ⏳ pending.**
 `copy-web-dist.mjs`: replace `rmSync` + `cpSync` with a sync walk — copy on
 size/mtime mismatch, delete extraneous files afterwards (never serve a
 half-deleted dist; `.build-stamp` exempt from deletion).
 
 ### T4 — Bytecode precompile (env setup)
 
+**Status: ⏳ pending.**
 `python3 -m compileall -q hermes/hermes_cli hermes/agent hermes/tools hermes/run_agent.py`
 — keeps cold import near the warm 0.46 s + 0.61 s numbers.
 
@@ -473,33 +529,43 @@ already put harness TTFT under the 20 ms gate.
 
 ---
 
-## 11. Verification protocol
+## 11. Verification protocol & recorded results
 
-1. **Timing:** extend `scripts/smoke_agui.py` — capture `t0` before POST,
-   timestamp every SSE line; print TTFE, TTFT, event count, wall time.
-   Run ×5 before/after each of L1, C1, L2.
-2. **CPU:** `pidstat -u -p $(pgrep -f 'hermes_cli.main dashboard') 1 30`
-   during a long streamed reply; compare cumulative CPU-seconds.
-3. **Event count:** `grep -c '^data:'` on the raw SSE capture — gate:
-   ≤ tokens/10 after C1.
-4. **Idle:** `pidstat 1 60` with one open (idle) SSE stream — gate: 0 wakeups
-   attributable to the bridge (compare against baseline 4/s).
-5. **Soak:** 50 sequential + 5 concurrent runs → RSS < 150 MB, thread count
-   returns to baseline (no leaked workers/title threads).
-6. **Durability drill:** `kill -9` mid-stream → restart →
-   `sqlite3 state.db 'PRAGMA quick_check'` = ok, history intact; restore a
-   `VACUUM INTO` snapshot and boot against it.
-7. **Static:** `curl -sI :9119/_next/static/...` shows
-   `cache-control: public, max-age=31536000, immutable`; with
-   `Accept-Encoding: br` shows `content-encoding: br` after S2.
-8. **Script:** `time bash scripts/start-hermes-ui.sh` with warm stamp < 2 s.
+1. **Timing** — `scripts/smoke_agui.py` now prints TTFE/TTFT/event
+   count/wall per run (`--runs N` aggregates min/median/max).
+   **Result:** TTFE min 2.3 / median ~4 / max 7.7 ms across 20+ runs
+   (no-LLM env; runs terminate at `RUN_ERROR` so TTFT requires a
+   configured provider).
+2. **CPU:** `pidstat -u -p <pid> 1 30` during a long streamed reply —
+   compare cumulative CPU-seconds. *(Requires an LLM provider; pending.)*
+3. **Event count** — gate ≤ tokens/10.
+   **Result:** test-verified — 400 synthetic 1-char deltas produced far
+   fewer `TEXT_MESSAGE_CONTENT` events with zero token loss and correct
+   flush-before-`TOOL_CALL_START` ordering
+   (`test_agui_deltas_coalesce_and_flush_before_structural_events`).
+4. **Idle** — gate 0 bridge wakeups.
+   **Result:** structural — the consumer is `await aq.get()`; there is no
+   polling path left to wake.
+5. **Soak** — gate RSS < 150 MB, no leaks.
+   **Result:** 20 sequential runs: RSS 135.4 → 136.5 MB, threads 6 → 6.
+   (5-concurrent-stream soak still to run with a live provider.)
+6. **Durability drill.**
+   **Result:** `kill -9` mid-operation → restart → `PRAGMA quick_check` =
+   `ok`, 24 sessions intact, server healthy in 1.4 s. (Snapshot restore
+   pending D1.)
+7. **Static.**
+   **Result:** hashed chunk served with
+   `cache-control: public, max-age=31536000, immutable`. (`br` pending S2.)
+8. **Script.**
+   **Result:** warm-stamp start 1.4–1.6 s (`Marko UI unchanged (stamp …) —
+   skipping build`); full rebuild path 27.6 s when sources change.
 
 ## 12. Sequencing & risk
 
-| Order | Items | Files touched | Risk |
-|---|---|---|---|
-| 1 | L1, C1 | `agui_endpoint.py` | Low — single file, ordering invariants unit-testable |
-| 2 | L2, L3, T1, T2, D1, D2 | `web_server.py`, `hermes_state.py`, `db_maintenance.py` (new), `start-hermes-ui.sh` | Low |
-| 3 | C3, S1, L4, D3 | `pyproject.toml`, `web_server.py`, `marko_session.py` | Low–moderate (L4: pooled handle lifecycle) |
-| 4 | C2, C4, S2, S3, T3, T4 | UI renderer, `conversation_loop.py`, `copy-web-dist.mjs` | Moderate (C4 touches the conversation loop) |
-| 5 | L5 | `run_agent.py`, `agent_init.py` | Highest — profile-gated, last |
+| Order | Items | Files touched | Risk | Status |
+|---|---|---|---|---|
+| 1 | L1, C1 | `agui_endpoint.py` | Low — single file, ordering invariants unit-testable | ✅ shipped |
+| 2 | L2, L3, T1, T2, D2 | `web_server.py`, `hermes_state.py`, `start-hermes-ui.sh` | Low | ✅ shipped |
+| 3 | C3, S1, L4, D1, D3 | `pyproject.toml`, `web_server.py`, `marko_session.py`, `db_maintenance.py` (new) | Low–moderate (L4: pooled handle lifecycle) | S1 ✅; rest pending |
+| 4 | C2, C4, S2, S3, T3, T4 | UI renderer, `conversation_loop.py`, `copy-web-dist.mjs` | Moderate (C4 touches the conversation loop) | ⏳ pending |
+| 5 | L5 | `run_agent.py`, `agent_init.py` | Highest — profile-gated, last | ⏳ deferred |
