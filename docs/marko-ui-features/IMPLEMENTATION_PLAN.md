@@ -640,4 +640,4 @@ Defer: frontend tools, cron/doc widgets, approvals, token ring, multi-profile.
 
 ---
 
-*Generated for porting Marko/Hermes one-hop UI features. Keep this file in sync when adding new CUSTOM events or catalog widgets.*
+*Keep this file in sync when adding new CUSTOM events or catalog widgets.*
