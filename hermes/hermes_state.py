@@ -356,6 +356,23 @@ def _apply_macos_checkpoint_barrier(conn: sqlite3.Connection) -> None:
         pass
 
 
+def _apply_wal_synchronous_normal(conn: sqlite3.Connection) -> None:
+    """Set ``PRAGMA synchronous=NORMAL`` — WAL connections only.
+
+    In WAL mode NORMAL is corruption-safe (the WAL is synced at checkpoint
+    boundaries, not per commit); the worst case on power loss is losing the
+    final committed transactions, which is acceptable for chat state. This
+    removes one fsync per write transaction versus the FULL default.
+
+    Never applied on the DELETE-journal fallback path, where NORMAL weakens
+    rollback-journal durability guarantees. Best-effort: never raises.
+    """
+    try:
+        conn.execute("PRAGMA synchronous=NORMAL")
+    except sqlite3.OperationalError:
+        pass
+
+
 def apply_wal_with_fallback(
     conn: sqlite3.Connection,
     *,
@@ -386,6 +403,7 @@ def apply_wal_with_fallback(
     try:
         current_mode = conn.execute("PRAGMA journal_mode").fetchone()
         if current_mode and current_mode[0] == "wal":
+            _apply_wal_synchronous_normal(conn)
             _apply_macos_checkpoint_barrier(conn)
             return "wal"
     except sqlite3.OperationalError:
@@ -393,6 +411,7 @@ def apply_wal_with_fallback(
 
     try:
         conn.execute("PRAGMA journal_mode=WAL")
+        _apply_wal_synchronous_normal(conn)
         _apply_macos_checkpoint_barrier(conn)
         return "wal"
     except sqlite3.OperationalError as exc:
