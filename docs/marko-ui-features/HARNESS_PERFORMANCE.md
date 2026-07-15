@@ -22,13 +22,13 @@ optimizations landed; implemented sections document the shipped code.
 | T2 | Tight script wait loops | ✅ shipped | `a59de34` |
 | L4 | Per-profile `SessionDB` reuse | ⏳ pending | — |
 | L5 | `AIAgent` init caching | ⏳ deferred (profile first) | — |
-| C2 | Client streaming render deferral | ⏳ pending | — |
+| C2 | Client streaming render deferral (stable/tail split + memoized bubbles + 8× pacing) | ✅ shipped | `19a1aa9`, `e598f38` |
 | C3 | uvloop + httptools | ⏳ pending | — |
 | C4 | Cooperative cancellation checkpoints | ⏳ pending | — |
 | D1 | Scheduled `VACUUM INTO` backups | ⏳ pending | — |
 | D3 | Startup integrity probe | ⏳ pending | — |
 | S2 | Build-time precompression | ⏳ pending | — |
-| S3 | Visibility-gated client polling | ⏳ pending | — |
+| S3 | Visibility-gated client polling | ✅ shipped | `343897e` |
 | T3 | Incremental dist copy | ⏳ pending | — |
 | T4 | Bytecode precompile in env setup | ⏳ pending | — |
 
@@ -212,15 +212,26 @@ below one 60 Hz display frame; perceived streaming unchanged.
 
 ### C2 — Client-side streaming render deferral
 
-**Status: ⏳ pending.**
-**Files:** `ui/src/components/chat/*` (markdown message renderer).
+**Status: ✅ shipped** (`19a1aa9`, `e598f38`). The implemented design goes
+further than the original sketch — three compounding fixes:
 
-While `isStreaming` is true for a message: render deltas through the light
-markdown path only — skip shiki highlighting, mermaid, and KaTeX (the three
-heaviest CPU users in the bundle). Trigger the full pipeline once on
-`TEXT_MESSAGE_END`, and opportunistically when a fenced code block closes
-(``` count becomes even). Memoize per completed block so the final render
-does not re-highlight already-final blocks.
+1. **Stable/tail markdown split** (`StreamingMarkdown.tsx`,
+   `splitStableMarkdown`): streamed content is split at the last blank-line
+   block boundary outside code fences. The stable prefix renders once with
+   the full pipeline (KaTeX, shiki, mermaid) inside a `memo()` component and
+   never re-renders until a new block completes; only the short tail
+   re-parses per frame, through a light gfm-only pass (plain `<pre>` code,
+   no math, no mermaid). Split correctness (fence handling, monotonic
+   growth) is unit-tested in `ui/test/streaming-markdown-split.test.ts`.
+2. **Memoized `MessageBubble`** + identity-stable store commits
+   (`stores/chat.ts` keeps untouched sessions' message arrays identical per
+   flush): settled bubbles stop re-rendering 60×/s while another message
+   streams.
+3. **Typewriter pacing un-throttled** (`stream-pacing.ts`): 3 → 24
+   chars/frame (~1.4k chars/s at 60 fps) with proportional backlog drain in
+   ~4 frames. The old 3-chars/frame crawl (180 chars/s) made the app *feel*
+   sluggish regardless of server speed — visible text lagged far behind the
+   wire on any real reply.
 
 ---
 
@@ -449,15 +460,16 @@ Compression cost moves to build time; runtime CPU for static ≈ sendfile.
 
 ### S3 — Visibility-gated client polling
 
-**Status: ⏳ pending.**
+**Status: ✅ shipped** (`343897e`).
 
-- `ui/src/components/shell/StatusFooter.tsx:77` — wrap the 15 s tick:
-  `if (document.visibilityState !== 'visible') return` + re-tick on
-  `visibilitychange`.
-- `ui/src/hooks/useNow.ts` — same gate.
-- React Query intervals (`WorkspacePanel:128`, `BriefingPanel:140`,
-  `McpSubPanel:378`, `CoworkWorkRequests:133,160`): confirm
-  `refetchIntervalInBackground` remains unset (defaults `false`) — no change.
+- `StatusFooter.tsx` — `/api/health` polls skip hidden tabs and refresh
+  immediately on `visibilitychange`.
+- `useNow.ts` — the shared elapsed-time ticker pauses its interval entirely
+  while hidden and resyncs on return (covers `ThinkingBlock`,
+  `StageStrip`).
+- React Query intervals (`WorkspacePanel`, `BriefingPanel`, `McpSubPanel`,
+  `CoworkWorkRequests`): `refetchIntervalInBackground` left unset (defaults
+  `false`) — already correct, no change.
 
 ---
 
