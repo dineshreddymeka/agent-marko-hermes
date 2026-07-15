@@ -102,8 +102,15 @@ def a2ui_render_tool(args: Dict[str, Any], **_kwargs: Any) -> str:
             complete = complete.strip().lower() not in {"0", "false", "no"}
 
         if component is None and not components:
-            # Convenience: treat remaining args as DocumentRequestForm props.
-            ctype = args.get("type") or "hermes:DocumentRequestForm"
+            # Convenience: treat remaining args as a form widget.
+            # Prefer DynamicForm when fields/title look like a fillable form;
+            # otherwise default to DocumentRequestForm (legacy).
+            ctype = args.get("type")
+            if not ctype:
+                if args.get("fields") is not None or args.get("title"):
+                    ctype = "hermes:DynamicForm"
+                else:
+                    ctype = "hermes:DocumentRequestForm"
             props = {
                 k: v
                 for k, v in args.items()
@@ -189,13 +196,16 @@ def set_theme_tool(args: Dict[str, Any], **_kwargs: Any) -> str:
 A2UI_RENDER_SCHEMA = {
     "name": "a2ui_render",
     "description": (
-        "Render an interactive A2UI surface in the Marko chat UI. Use this when "
-        "you need structured user input (document request forms, cron schedule "
-        "pickers, memory editors, skill cards, file diffs) instead of plain text. "
-        "Provide a component with type + props from the Hermes A2UI catalog "
-        "(hermes:DocumentRequestForm, hermes:CronSchedulePicker, "
-        "hermes:MemoryEntryEditor, hermes:SkillCard, hermes:FileDiff, "
-        "hermes:FormRequestForm) or standard catalog widgets."
+        "Render an interactive A2UI surface in the Marko chat UI. ALWAYS use this "
+        "when the user asks for a form, questionnaire, survey, intake, contact form, "
+        "or any fillable UI in chat. NEVER dump HTML/CSS form code as plain text — "
+        "the Marko UI does not execute HTML from chat messages. "
+        "For a ready-to-fill form use hermes:DynamicForm with title + fields "
+        "[{name,label,type,required,options?}]. Types: text, email, textarea, select, "
+        "checkbox, number. For document/PPT requests use hermes:DocumentRequestForm. "
+        "For cron scheduling use hermes:CronSchedulePicker. Also supports "
+        "hermes:FormRequestForm, hermes:MemoryEntryEditor, hermes:SkillCard, "
+        "hermes:FileDiff, and standard widgets (TextField, Select, Button, Card)."
     ),
     "parameters": {
         "type": "object",

@@ -7,6 +7,7 @@ export type HermesCatalogComponentId =
   | 'hermes:FileDiff'
   | 'hermes:DocumentRequestForm'
   | 'hermes:FormRequestForm'
+  | 'hermes:DynamicForm'
 
 export interface SkillCardProps {
   skillId: string
@@ -67,6 +68,23 @@ export interface FormRequestFormProps {
   storageTarget?: string
 }
 
+/** Ready-to-fill interactive form rendered in chat (contact, survey, intake, …). */
+export interface DynamicFormFieldSpec {
+  name: string
+  label?: string
+  type?: 'text' | 'email' | 'textarea' | 'select' | 'checkbox' | 'number'
+  required?: boolean
+  placeholder?: string
+  options?: Array<string | { value: string; label: string }>
+}
+
+export interface DynamicFormProps {
+  title?: string
+  description?: string
+  fields?: DynamicFormFieldSpec[] | string
+  submitLabel?: string
+}
+
 export type HermesCatalogProps =
   | SkillCardProps
   | MemoryEntryEditorProps
@@ -74,6 +92,7 @@ export type HermesCatalogProps =
   | FileDiffProps
   | DocumentRequestFormProps
   | FormRequestFormProps
+  | DynamicFormProps
 
 export const HERMES_CATALOG_IDS: HermesCatalogComponentId[] = [
   'hermes:SkillCard',
@@ -82,4 +101,5 @@ export const HERMES_CATALOG_IDS: HermesCatalogComponentId[] = [
   'hermes:FileDiff',
   'hermes:DocumentRequestForm',
   'hermes:FormRequestForm',
+  'hermes:DynamicForm',
 ]

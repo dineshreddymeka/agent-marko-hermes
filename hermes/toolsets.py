@@ -61,6 +61,8 @@ _HERMES_CORE_TOOLS = [
     "session_search",
     # Clarifying questions
     "clarify",
+    # Marko interactive surfaces (always visible so tool_search cannot hide forms)
+    "a2ui_render",
     # Code execution + delegation
     "execute_code", "delegate_task",
     # Cronjob management

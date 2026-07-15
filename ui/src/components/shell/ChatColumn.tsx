@@ -52,13 +52,25 @@ export function ChatColumn({ sessionId }: ChatColumnProps) {
     let stopPoll: (() => void) | undefined
     setLoading(true)
     setLoadError(null)
+
+    // Drop stale working/done UI from another session when opening history.
+    // checkLiveRun below will restore status only if this session is live.
+    useChatStore.getState().clearStreamingState()
+    useChatStore.getState().resetRun()
+
     void (async () => {
       try {
         await loadSessionMessages(sessionId, { signal: ac.signal })
         if (ac.signal.aborted) return
         const live = await checkLiveRun(sessionId)
-        if (!ac.signal.aborted && live) {
+        if (ac.signal.aborted) return
+        if (live) {
           stopPoll = startLiveMessagePoll(sessionId)
+        } else {
+          // Ensure historical transcripts never keep a working/done bubble.
+          const chat = useChatStore.getState()
+          chat.clearStreamingState()
+          chat.resetRun()
         }
       } catch (err) {
         if (ac.signal.aborted) return

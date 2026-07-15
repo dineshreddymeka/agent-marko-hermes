@@ -232,6 +232,12 @@ export async function sendA2UIAction(
         description: String(payload.name ?? 'skill'),
         variant: 'success',
       })
+    } else if (action === 'submit_form') {
+      useUiStore.getState().addToast({
+        title: 'Form submitted',
+        description: String(payload.title ?? 'Thanks'),
+        variant: 'success',
+      })
     }
   } catch (err) {
     useUiStore.getState().addToast({

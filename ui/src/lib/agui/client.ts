@@ -459,6 +459,9 @@ export async function checkLiveRun(sessionId: string): Promise<boolean> {
       getAgent(sessionId)
       useChatStore.getState().setRunId(data.runId)
       useChatStore.getState().setRunStatus('running')
+      if (!useChatStore.getState().runStage) {
+        useChatStore.getState().setStage('writing')
+      }
       return true
     }
   } catch {
@@ -476,7 +479,9 @@ export function startLiveMessagePoll(sessionId: string): () => void {
       await loadSessionMessages(sessionId)
       const stillLive = await checkLiveRun(sessionId)
       if (!stillLive) {
-        useChatStore.getState().setRunStatus('idle')
+        const chat = useChatStore.getState()
+        chat.clearStreamingState()
+        chat.resetRun()
         stopped = true
         return
       }

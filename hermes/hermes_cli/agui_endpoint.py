@@ -367,6 +367,18 @@ def _run_agent_sync(
                 session_db=db,
                 platform="marko",
                 quiet_mode=True,
+                ephemeral_system_prompt=(
+                    "You are running inside the Marko chat UI (Hermes AG-UI). "
+                    "When the user asks for a form, questionnaire, survey, contact form, "
+                    "intake, or any interactive UI in chat, you MUST call the a2ui_render "
+                    "tool with hermes:DynamicForm (title, description, fields array with "
+                    "name/label/type/required/options, submitLabel). "
+                    "Never paste HTML, CSS, or React form source code into the chat — "
+                    "Marko cannot render raw HTML as a live form. "
+                    "Use hermes:DocumentRequestForm for document/PPT requests and "
+                    "hermes:CronSchedulePicker for schedules. Keep a short text reply "
+                    "and let the interactive surface collect the input."
+                ),
                 stream_delta_callback=on_stream_delta,
                 reasoning_callback=on_reasoning_delta,
                 tool_start_callback=on_tool_start,
@@ -420,6 +432,77 @@ def _run_agent_sync(
 
             for payload in emitted_a2ui:
                 _persist_a2ui(db, thread_id, payload)
+
+            # Auto-summarize session title after early replies. Marko UI updates
+            # the sidebar/header from CUSTOM hermes.title on this same SSE stream.
+            if final and user_text and not cancel.is_set():
+                try:
+                    from agent.title_generator import auto_title_session
+
+                    msgs = (result or {}).get("messages") or history or []
+                    user_count = sum(
+                        1 for m in msgs if isinstance(m, dict) and m.get("role") == "user"
+                    )
+                    if user_count <= 2:
+                        title_done = threading.Event()
+
+                        def _on_title(title: str) -> None:
+                            try:
+                                emit(
+                                    {
+                                        "type": "CUSTOM",
+                                        "name": "hermes.title",
+                                        "value": {
+                                            "title": title,
+                                            "sessionId": thread_id,
+                                        },
+                                    }
+                                )
+                            finally:
+                                title_done.set()
+
+                        title_thread = threading.Thread(
+                            target=auto_title_session,
+                            args=(db, thread_id, user_text, final),
+                            kwargs={"title_callback": _on_title},
+                            daemon=True,
+                            name="marko-auto-title",
+                        )
+                        title_thread.start()
+                        # Wait briefly so hermes.title can ride this SSE stream.
+                        title_thread.join(timeout=6.0)
+                        title_done.wait(timeout=0.25)
+                except Exception:
+                    _log.debug("Marko auto-title skipped", exc_info=True)
+
+            # Context usage for the Marko token ring (StatusFooter).
+            try:
+                compressor = getattr(agent, "context_compressor", None)
+                if compressor is not None:
+                    used = int(
+                        getattr(compressor, "last_prompt_tokens", 0)
+                        or getattr(compressor, "prompt_tokens", 0)
+                        or 0
+                    )
+                    limit = int(
+                        getattr(compressor, "context_length", 0)
+                        or getattr(compressor, "max_context_tokens", 0)
+                        or 0
+                    )
+                    if used or limit:
+                        emit(
+                            {
+                                "type": "CUSTOM",
+                                "name": "hermes.context",
+                                "value": {
+                                    "tokensUsed": used,
+                                    "tokensMax": limit or None,
+                                    "sessionId": thread_id,
+                                },
+                            }
+                        )
+            except Exception:
+                _log.debug("Marko hermes.context emit skipped", exc_info=True)
 
             emit(
                 {

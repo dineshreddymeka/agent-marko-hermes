@@ -33,6 +33,50 @@ _TITLE_PROMPT_PINNED_LANGUAGE = (
     "Return ONLY the title text, nothing else. No quotes, no punctuation at the end, no prefixes."
 )
 
+_PLACEHOLDER_TITLES = frozenset(
+    {
+        "",
+        "new chat",
+        "untitled",
+        "untitled session",
+        "untitled chat",
+    }
+)
+
+
+def is_placeholder_title(title: Optional[str]) -> bool:
+    if title is None:
+        return True
+    return str(title).strip().lower() in _PLACEHOLDER_TITLES
+
+
+def heuristic_title(user_message: str, max_words: int = 7, max_len: int = 64) -> Optional[str]:
+    """Derive a readable title from the first user message when LLM is unavailable.
+
+    Keeps Marko/chat sessions from staying 'Untitled' in offline / no-key setups.
+    """
+    if not user_message or not str(user_message).strip():
+        return None
+    text = " ".join(str(user_message).strip().split())
+    # Drop common chat prefixes
+    for prefix in ("please ", "can you ", "could you ", "hey ", "hi ", "hello "):
+        if text.lower().startswith(prefix):
+            text = text[len(prefix) :]
+            break
+    words = text.split()
+    if not words:
+        return None
+    clipped = " ".join(words[:max_words])
+    if len(words) > max_words or len(clipped) > max_len:
+        clipped = clipped[: max_len - 1].rstrip(".,;:!? ") + "…"
+    else:
+        clipped = clipped.rstrip(".,;:!? ")
+    # Title-case lightly without wrecking acronyms
+    if clipped and clipped[0].islower():
+        clipped = clipped[0].upper() + clipped[1:]
+    return clipped or None
+
+
 
 def _title_language() -> str:
     """Return configured title language, or empty string to match the user."""
@@ -140,7 +184,7 @@ def auto_title_session(
     # Check if title already exists (user may have set one via /title before first response)
     try:
         existing = session_db.get_session_title(session_id)
-        if existing:
+        if existing and not is_placeholder_title(existing):
             return
     except Exception:
         return
@@ -148,6 +192,10 @@ def auto_title_session(
     title = generate_title(
         user_message, assistant_response, failure_callback=failure_callback, main_runtime=main_runtime
     )
+    if not title:
+        title = heuristic_title(user_message)
+        if title:
+            logger.info("Using heuristic session title (LLM unavailable): %s", title)
     if not title:
         return
 

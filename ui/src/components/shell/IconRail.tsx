@@ -67,7 +67,7 @@ export function IconRail() {
   return (
     <nav
       aria-label="Main navigation"
-      className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-border bg-rail py-2 max-md:hidden"
+      className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-border-muted rail-surface py-2 max-md:hidden"
     >
       {visibleItems.map(({ id, icon: Icon, label, to }) => {
         const active =

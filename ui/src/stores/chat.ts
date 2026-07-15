@@ -268,8 +268,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       if (!targetId) {
         const a2uiTools = new Set([
           'document_form_show',
-          'cron_form_show',
           'form_request_show',
+          'cron_form_show',
           'a2ui_render',
         ])
         const tc = [...Object.values(s.toolCalls)]

@@ -15,6 +15,7 @@ type HermesSessionRow = {
   id?: string
   session_id?: string
   title?: string | null
+  preview?: string | null
   archived?: boolean | number
   started_at?: number | string | null
   last_active?: number | string | null
@@ -64,13 +65,33 @@ function contentToString(content: unknown): string {
   }
 }
 
+const PLACEHOLDER_TITLES = new Set([
+  '',
+  'new chat',
+  'untitled',
+  'untitled session',
+  'untitled chat',
+])
+
+function displaySessionTitle(row: HermesSessionRow): string {
+  const raw = row.title != null ? String(row.title).trim() : ''
+  const isPlaceholder = !raw || PLACEHOLDER_TITLES.has(raw.toLowerCase())
+  if (!isPlaceholder) return raw
+  const preview = row.preview != null ? String(row.preview).trim() : ''
+  if (preview) {
+    const oneLine = preview.replace(/\s+/g, ' ')
+    return oneLine.length > 64 ? `${oneLine.slice(0, 63)}…` : oneLine
+  }
+  return 'New chat'
+}
+
 export function hermesSessionToDto(row: HermesSessionRow): Session {
   const id = String(row.id ?? row.session_id ?? '')
   const createdAt = tsToIso(row.started_at)
   const updatedAt = tsToIso(row.last_active ?? row.started_at)
   return {
     id,
-    title: (row.title && String(row.title)) || 'Untitled',
+    title: displaySessionTitle(row),
     groupName: null,
     profileId: row.profile ? String(row.profile) : null,
     pinned: false,
@@ -139,9 +160,16 @@ export async function createHermesSession(
   if (id) body.id = id
   const data = await apiClient.post<Session | HermesSessionRow>('/api/sessions', body)
   // POST /api/sessions already returns Marko Session shape from Hermes;
-  // also accept raw Hermes rows.
+  // also accept raw Hermes rows. Always normalize placeholder titles.
   if (data && typeof data === 'object' && 'createdAt' in data && 'id' in data) {
-    return data as Session
+    const session = data as Session
+    return {
+      ...session,
+      title: displaySessionTitle({
+        id: session.id,
+        title: session.title,
+      }),
+    }
   }
   return hermesSessionToDto(data as HermesSessionRow)
 }

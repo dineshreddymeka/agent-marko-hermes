@@ -4092,24 +4092,31 @@ def create_session_marko(body: MarkoSessionCreate):
     """Create a session row for Agent-Marko UI (source=marko)."""
     import uuid as _uuid
 
+    from agent.title_generator import is_placeholder_title
+
     session_id = (body.id or "").strip() or str(_uuid.uuid4())
-    title = (body.title or "New chat").strip() or "New chat"
+    raw_title = (body.title or "").strip()
+    # Do not persist "New chat" / Untitled — leave NULL so auto-title can fill
+    # after the first exchange. Still return a friendly display title to Marko.
+    display_title = raw_title if raw_title and not is_placeholder_title(raw_title) else "New chat"
+    persist_title = display_title if raw_title and not is_placeholder_title(raw_title) else None
     db = _open_session_db_for_profile(body.profile)
     try:
         existing = db.get_session(session_id)
         if not existing:
             db.create_session(session_id, source="marko")
-        try:
-            db.set_session_title(session_id, title)
-        except Exception:
-            _log.debug("session title update skipped", exc_info=True)
-        row = db.get_session(session_id) or {"id": session_id, "title": title}
+        if persist_title:
+            try:
+                db.set_session_title(session_id, persist_title)
+            except Exception:
+                _log.debug("session title update skipped", exc_info=True)
+        row = db.get_session(session_id) or {"id": session_id, "title": persist_title}
         now_iso = datetime.now(timezone.utc).isoformat()
         started = row.get("started_at")
         last = row.get("last_active", started)
         return {
             "id": session_id,
-            "title": row.get("title") or title,
+            "title": row.get("title") or display_title,
             "groupName": None,
             "profileId": body.profile,
             "pinned": False,

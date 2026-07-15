@@ -21,9 +21,15 @@
     line-height: 1.55;
     letter-spacing: -0.011em;
     color: var(--color-fg);
-    background: var(--color-canvas);
+    background: var(--hermes-canvas-atmosphere, var(--color-canvas));
+    background-attachment: fixed;
     -webkit-font-smoothing: antialiased;
     padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  ::selection {
+    background: var(--hermes-selection);
+    color: var(--color-fg);
   }
 
   button {
@@ -50,15 +56,15 @@
 
   .composer-surface {
     background: var(--hermes-composer-bg);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    box-shadow: var(--hermes-shadow);
+    backdrop-filter: blur(18px) saturate(1.15);
+    -webkit-backdrop-filter: blur(18px) saturate(1.15);
+    box-shadow: var(--hermes-shadow), 0 0 0 1px color-mix(in srgb, var(--color-accent) 12%, transparent);
   }
 
   .header-surface {
     background: var(--hermes-header-bg);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(14px) saturate(1.1);
+    -webkit-backdrop-filter: blur(14px) saturate(1.1);
   }
 
   .welcome-glow {
@@ -67,6 +73,13 @@
 
   .accent-chip {
     background: var(--hermes-gradient-accent);
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--color-accent) 28%, transparent);
+  }
+
+  .rail-surface {
+    background:
+      var(--hermes-rail-glow),
+      var(--color-rail);
   }
 
   .smart-chip {
@@ -98,6 +111,11 @@
   .smart-chip-danger {
     color: var(--color-danger);
     background: color-mix(in srgb, var(--color-danger) 16%, transparent);
+  }
+
+  .smart-chip-accent {
+    color: var(--color-accent-emphasis);
+    background: color-mix(in srgb, var(--color-accent) 16%, transparent);
   }
 
   .transition-shell {
