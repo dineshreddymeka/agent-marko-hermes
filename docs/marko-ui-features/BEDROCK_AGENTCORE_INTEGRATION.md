@@ -11,6 +11,7 @@ Primary references:
 - [AgentCore Gateway](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway.html)
 - [Runtime sessions](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-sessions.html)
 - boto3 `bedrock-agentcore-control` (GetGateway, ListGatewayTargets, Create/GetAgentRuntime, ListMemories)
+- boto3 `secretsmanager` (`GetSecretValue`) for just-in-time secret material — never persisted locally
 
 Related plans: [DESKTOP_APP.md](./DESKTOP_APP.md) (thin Electron shell — out of scope here).
 
@@ -19,9 +20,10 @@ Related plans: [DESKTOP_APP.md](./DESKTOP_APP.md) (thin Electron shell — out o
 ## 0. Locked decisions
 
 - **AWS SDK:** boto3 `bedrock-agentcore-control` for Gateway / Targets / Runtimes / Memories; MCP tool listing against `gatewayUrl`.
-- **DB matches AWS:** mirror tables use the **same field names** as GetGateway / ListGatewayTargets / CreateAgentRuntime / ListMemories / Runtime session docs (snake_case SQL columns = AWS JSON keys). Full AWS payloads also stored in `raw_json` for forward-compat.
-- **Marko stays the UI; Hermes is the BFF.** No AWS keys in the browser.
-- **`gateway_opt_ins`** is the single Marko opt-in overlay (MCP / tools / skills / plugins). Sync upserts AWS mirror tables first, then flattens into opt-ins; enabling mirrors into existing `mcp_registry` / `skills_registry`.
+- **DB matches AWS:** mirror tables use the **same field names** as GetGateway / ListGatewayTargets / CreateAgentRuntime / ListMemories / Runtime session docs (snake_case SQL columns = AWS JSON keys). Non-secret AWS payloads also stored in `raw_json` for forward-compat (**after redaction** — see secrets rule).
+- **No secrets stored locally; fetch from AWS at runtime.** Never persist AWS access keys, secret keys, session tokens, JWT/client secrets, API keys, OAuth refresh/access tokens, MCP auth headers, or credential-provider secret *material* in SQLite, `config.yaml`, `raw_json`, opt-in metadata, Marko localStorage, or the browser. Mirror tables may keep **identifiers only** (e.g. Secrets Manager `secretArn`, credential-provider type/name, `authorizerType`). When Hermes needs a secret (Gateway MCP auth, target credential providers, etc.), resolve it **just-in-time** via AWS SDK — boto3 `secretsmanager.get_secret_value` and/or AgentCore Gateway credential-provider APIs — using the process IAM chain (IRSA / instance profile / SSO). Hold material in **process memory for the request only**; never write fetched values to disk or return them on Marko REST. Sync still **redacts** any secret material that appears in control-plane payloads before upsert.
+- **Marko stays the UI; Hermes is the BFF.** No AWS credentials or secret values of any kind in the browser.
+- **`gateway_opt_ins`** is the single Marko opt-in overlay (MCP / tools / skills / plugins). Sync upserts AWS mirror tables first, then flattens into opt-ins; enabling mirrors into existing `mcp_registry` / `skills_registry` (mirror rows store URL/name + optional `secretArn` pointer only; live auth is fetched via AWS SDK when testing/calling MCP).
 - **All panels scroll** via shared `PanelChrome` + route `overflow-hidden`.
 
 ```mermaid
@@ -36,10 +38,12 @@ flowchart TB
   OptIn[(gateway_opt_ins)]
   McpDB[(mcp_servers)]
   SkillsDB[(skills)]
-  AWS[bedrock-agentcore-control]
+  Control[bedrock-agentcore-control]
+  SM[Secrets Manager / credential providers]
 
   Marko -->|"connect / sync / opt-ins"| Hermes
-  Hermes --> AWS
+  Hermes -->|"list/get resources"| Control
+  Hermes -->|"GetSecretValue JIT"| SM
   Hermes --> GWTbl
   Hermes --> TgtTbl
   Hermes --> RtTbl
@@ -59,8 +63,10 @@ flowchart TB
 All in `state.db` via `hermes/hermes_cli/registry_schema.py`. Column names follow
 AWS API JSON keys. Timestamps stored as ISO-8601 TEXT.
 
-**Rule:** sync **never invents** AWS field names — upsert from SDK response
-dicts; unknown future keys remain in `raw_json`.
+**Rules:**
+- Sync **never invents** AWS field names — upsert from SDK response dicts; unknown future **non-secret** keys remain in `raw_json`.
+- Sync **never stores secret material** — run `_redact_secrets(obj)` before column mapping and before writing `raw_json`. Strip values for keys matching (case-insensitive): `secret` (except keep `*Arn` / `*ARN` **identifier** strings), `password`, `token`, `apiKey`/`api_key`, `accessKey`, `secretKey`, `clientSecret`, `authorization` header values, credential value blobs. Prefer omitting whole secret blocks over placeholders.
+- **Resolve secrets via AWS SDK at use-time:** `secretsmanager.get_secret_value(SecretId=arn)` and AgentCore Gateway credential-provider resolution. Optional short-lived in-memory cache (TTL seconds, never disk). IAM must allow `secretsmanager:GetSecretValue` on the referenced ARNs.
 
 ### 1a. `agentcore_gateways` — mirrors `GetGateway`
 
@@ -77,13 +83,13 @@ dicts; unknown future keys remain in `raw_json`.
 | `protocol_type` | `protocolType` | MCP |
 | `protocol_configuration_json` | `protocolConfiguration` | |
 | `authorizer_type` | `authorizerType` | CUSTOM_JWT\|AWS_IAM\|NONE\|… |
-| `authorizer_configuration_json` | `authorizerConfiguration` | |
-| `kms_key_arn` | `kmsKeyArn` | |
+| `authorizer_configuration_json` | `authorizerConfiguration` | redacted — no client secrets / JWKS private material |
+| `kms_key_arn` | `kmsKeyArn` | ARN only |
 | `workload_identity_arn` | `workloadIdentityDetails.workloadIdentityArn` | |
 | `region` | (client) | |
 | `created_at` / `updated_at` | `createdAt` / `updatedAt` | |
 | `last_synced_at` | local | |
-| `raw_json` | full GetGateway body | forward-compat |
+| `raw_json` | GetGateway body **after redaction** | forward-compat; never secret material |
 
 ### 1b. `agentcore_gateway_targets` — mirrors `ListGatewayTargets` / GetGatewayTarget
 
@@ -99,10 +105,10 @@ dicts; unknown future keys remain in `raw_json`.
 | `resource_priority` | `resourcePriority` |
 | `last_synchronized_at` | `lastSynchronizedAt` |
 | `target_configuration_json` | `targetConfiguration` |
-| `credential_provider_configurations_json` | `credentialProviderConfigurations` |
-| `authorization_data_json` | `authorizationData` |
+| `credential_provider_configurations_json` | `credentialProviderConfigurations` | types + `secretArn` pointers only |
+| `authorization_data_json` | `authorizationData` | omit material; keep ARNs/types if present |
 | `created_at` / `updated_at` | AWS timestamps |
-| `raw_json` | full target object |
+| `raw_json` | target object **after redaction** |
 
 ### 1c. `agentcore_runtimes` — mirrors `CreateAgentRuntime` / GetAgentRuntime
 
@@ -120,10 +126,10 @@ dicts; unknown future keys remain in `raw_json`.
 | `lifecycle_configuration_json` | `lifecycleConfiguration` (`idleRuntimeSessionTimeout`, `maxLifetime`) |
 | `filesystem_configurations_json` | `filesystemConfigurations` |
 | `environment_variables_json` | `environmentVariables` |
-| `authorizer_configuration_json` | `authorizerConfiguration` |
+| `authorizer_configuration_json` | `authorizerConfiguration` | redacted |
 | `region` | (client) | |
 | `created_at` / `updated_at` / `last_synced_at` | |
-| `raw_json` | full runtime object |
+| `raw_json` | runtime object **after redaction** |
 
 ### 1d. `agentcore_runtime_sessions` — mirrors Runtime session model
 
@@ -175,7 +181,7 @@ gateway_opt_ins (
 )
 ```
 
-Profile config (pointers only; rows live in SQLite):
+Profile config (pointers only; rows live in SQLite). **No secrets in YAML:**
 
 ```yaml
 agentcore:
@@ -183,7 +189,14 @@ agentcore:
   gateway_id: "..."                 # PK into agentcore_gateways
   agent_runtime_arn: "..."          # optional default runtime
   memory_id: "..."                  # optional default memory
+  # NEVER: aws_access_key_id, aws_secret_access_key, session_token, client_secret, api_key
 ```
+
+Credentials / secrets resolution (process only; never written to disk by this feature):
+
+1. Control-plane + data-plane IAM: IRSA → instance profile → Hermes/AWS SSO env chain (boto3 default).
+2. Application secrets referenced by Gateway targets: `boto3.client("secretsmanager").get_secret_value(...)` using stored `secretArn` pointers.
+3. Never put secret values in REST JSON to Marko; never log secret bodies.
 
 ---
 
@@ -193,12 +206,13 @@ New: `hermes/hermes_cli/agentcore_gateway.py` (+ thin runtime/memory list helper
 
 | Function | SDK | Writes |
 |---|---|---|
-| `connect_gateway(gateway_id)` | `get_gateway` | `agentcore_gateways` |
-| `sync_gateway_targets(gateway_id)` | `list_gateway_targets` (+ get/synchronize as needed) | `agentcore_gateway_targets` |
+| `connect_gateway(gateway_id)` | `get_gateway` | `agentcore_gateways` (redacted) |
+| `sync_gateway_targets(gateway_id)` | `list_gateway_targets` (+ get/synchronize as needed) | `agentcore_gateway_targets` (redacted; keep `secretArn` pointers) |
 | `sync_runtimes()` | `list_agent_runtimes` / get | `agentcore_runtimes` |
 | `sync_memories()` | `list_memories` | `agentcore_memories` |
 | `rebuild_opt_ins(gateway_id)` | flatten targets + MCP `tools/list` + local skills/plugins/tools | `gateway_opt_ins` (preserve `enabled`) |
-| `apply_opt_in(id, enabled)` | — | mirror into mcp/skills/plugins/toolsets |
+| `apply_opt_in(id, enabled)` | — | mirror into mcp/skills/plugins/toolsets (no secret material) |
+| `resolve_secret(secret_arn)` | `secretsmanager.get_secret_value` | **nothing** — return value in-memory for caller only |
 
 Sync algorithm (`POST /api/gateway/sync`):
 
@@ -253,11 +267,11 @@ Kanban, Profiles, Settings.
 ## 5. Implementation sequence
 
 1. `registry_schema.py` mirror tables + `gateway_opt_ins` + tests.
-2. boto3 sync upserts (fake client fixtures asserting column↔AWS key mapping).
-3. REST + shared types.
+2. boto3 sync upserts (fake client fixtures asserting column↔AWS key mapping) + **redaction unit tests** (fixtures with fake secrets must not appear in DB/`raw_json`).
+3. REST + shared types (responses also redacted).
 4. Connections UI opt-in table.
 5. Panel scroll shell.
-6. Smoke: connect → sync → AWS rows present → enable MCP → MCP panel; scroll works.
+6. Smoke: connect → sync → AWS rows present → enable MCP → MCP panel; scroll works; DB dump contains no secret substrings from fixtures.
 
 ---
 
@@ -273,12 +287,14 @@ Kanban, Profiles, Settings.
 ## 7. Acceptance
 
 - [ ] Connect with region + gateway id upserts `agentcore_gateways` with AWS field names.
-- [ ] Sync fills targets / runtimes / memories mirror tables; `raw_json` retains full SDK bodies.
+- [ ] Sync fills targets / runtimes / memories mirror tables; `raw_json` retains redacted SDK bodies.
 - [ ] Opt-ins appear in one Connections table; default `enabled=0`; sticky across re-sync.
 - [ ] Enabling an MCP opt-in mirrors into `mcp_servers` and shows in MCP panel.
 - [ ] Enabling a skill opt-in mirrors into skills registry and shows in Skills panel.
 - [ ] All IconRail panels scroll list bodies without clipping.
-- [ ] No AWS credentials in the browser; only Hermes server-side SDK.
+- [ ] No AWS credentials or secret values in the browser; Hermes uses runtime IAM + JIT `GetSecretValue`.
+- [ ] No secret material in SQLite / `config.yaml` / API responses; only `secretArn` (and similar) identifiers may be stored.
+- [ ] MCP test/call path fetches secrets via AWS SDK at use-time; values never logged or persisted.
 
 ---
 
