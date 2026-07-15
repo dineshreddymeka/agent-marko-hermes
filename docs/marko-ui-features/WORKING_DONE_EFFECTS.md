@@ -2,7 +2,7 @@
 
 ## Problem
 
-Users expect Cursor-like activity chrome while the agent runs (shimmer, working bubble, Done settle). Two classes of bugs appeared:
+Users expect IDE-style activity chrome while the agent runs (shimmer, working bubble, Done settle). Two classes of bugs appeared:
 
 1. **CSS:** `motion-safe:text-shimmer` etc. never applied (Tailwind v4 needs `@utility`).
 2. **State:** session remount / history load called `resetRun()` and wiped chrome mid-run; or Done stuck on old sessions.

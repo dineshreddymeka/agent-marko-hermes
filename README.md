@@ -39,7 +39,7 @@ proxy and no Cloudflare tunnel.
 bash scripts/start-hermes-ui.sh
 ```
 
-Open **http://127.0.0.1:9119/** (Cursor → Ports → forward **9119**).
+Open **http://127.0.0.1:9119/** (forward local port **9119** if previewing remotely).
 
 Swagger: http://127.0.0.1:9119/docs
 

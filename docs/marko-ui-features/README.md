@@ -22,7 +22,7 @@ All **Agent-Marko ↔ Hermes one-hop** feature docs live in this folder. Use the
 | [AGUI_EVENTS.md](./AGUI_EVENTS.md) | SSE protocol, standard + CUSTOM events, payloads |
 | [SESSION_TITLES.md](./SESSION_TITLES.md) | Auto-title / summarization end-to-end |
 | [A2UI_FORMS.md](./A2UI_FORMS.md) | `a2ui_render`, DynamicForm, multi-form, actions |
-| [WORKING_DONE_EFFECTS.md](./WORKING_DONE_EFFECTS.md) | Cursor-like working/done chrome + history clear |
+| [WORKING_DONE_EFFECTS.md](./WORKING_DONE_EFFECTS.md) | IDE-style working/done chrome + history clear |
 | [CHAT_RELIABILITY.md](./CHAT_RELIABILITY.md) | runId guards, cancel, watchdog, live poll |
 | [FRONTEND_TOOLS.md](./FRONTEND_TOOLS.md) | Client-executed Marko tools |
 | [CAPABILITIES.md](./CAPABILITIES.md) | OpenAPI-driven feature flags + IconRail gates |

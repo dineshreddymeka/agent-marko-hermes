@@ -378,7 +378,7 @@ npm run validate:api-map
 Expected: health `200`, token present, capabilities `features.agui/sessions/workspace/...` true;
 `office` / `cowork` / `approval` / `debug` false until those routes are ported.
 
-Open UI: **http://127.0.0.1:9119/** (Cursor Ports → 9119).
+Open UI: **http://127.0.0.1:9119/** (forward local port **9119** if previewing remotely).
 
 ---
 
