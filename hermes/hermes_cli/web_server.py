@@ -217,6 +217,16 @@ async def _lifespan(app: "FastAPI"):
     except Exception:
         _log.exception("Registry bootstrap failed")
 
+    # Index skills/MCP into state.db on first boot (empty tables).
+    try:
+        from hermes_cli.skills_registry import maybe_bootstrap_from_disk
+        from hermes_cli.mcp_registry import maybe_bootstrap_from_config
+
+        maybe_bootstrap_from_disk()
+        maybe_bootstrap_from_config()
+    except Exception:
+        _log.exception("Registry bootstrap failed")
+
     # Desktop-spawned backends (HERMES_DESKTOP=1) fire cron jobs themselves,
     # since the app has no gateway running the scheduler. Server `hermes
     # dashboard` is unaffected — it relies on its own gateway.
@@ -17379,7 +17389,6 @@ app.include_router(_marko_kanban_router)
 # Agent-Marko capabilities (OpenAPI-derived feature map for Next.js).
 from hermes_cli.marko_capabilities import router as _marko_capabilities_router  # noqa: E402
 app.include_router(_marko_capabilities_router)
-
 
 @app.get("/api/marko/boot")
 async def marko_boot(request: Request):
