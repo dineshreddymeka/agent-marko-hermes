@@ -30,6 +30,8 @@ All **Agent-Marko ↔ Hermes one-hop** feature docs live in this folder. Use the
 | [COMPOSER_AND_MARKDOWN.md](./COMPOSER_AND_MARKDOWN.md) | Composer, slash commands, streaming markdown |
 | [PANELS.md](./PANELS.md) | Workspace, Skills, Memory, MCP, Cron, Kanban, Profiles, Settings |
 | [HARNESS_PERFORMANCE.md](./HARNESS_PERFORMANCE.md) | Agentic harness perf spec: ultralow latency, low CPU — implemented items, measured results, remaining work |
+| [BEDROCK_AGENTCORE_INTEGRATION.md](./BEDROCK_AGENTCORE_INTEGRATION.md) | Enterprise plan: Marko + Hermes ↔ AWS Bedrock AgentCore (Harness, Runtime, Gateway, Identity) — J&J-scale patterns |
+| [DESKTOP_APP.md](./DESKTOP_APP.md) | Plan: ship Marko as a native desktop app (thin Electron shell over one-hop Hermes) |
 
 ## Local preview (this repo)
 
