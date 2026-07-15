@@ -1,71 +1,126 @@
-# Working / Done Chat Effects
+# Working / Done Chat Effects — Detailed Implementation
 
-Cursor-like activity chrome while the agent runs, cleared when browsing history.
+## Problem
 
-## What the user sees
+Users expect Cursor-like activity chrome while the agent runs (shimmer, working bubble, Done settle). Two classes of bugs appeared:
 
-| Effect | When |
-|--------|------|
-| **StageStrip** (footer shimmer / Done settle) | Live run on the viewed session |
-| **AgentWorkingBubble** (sparkle + “Working…”) | Running, stage active, no live assistant content yet |
-| **MessageBubble** sparkle / text shimmer / working dots | Assistant message with `streaming: true` |
-| **Skeleton shimmer bars** | Working placeholder |
+1. **CSS:** `motion-safe:text-shimmer` etc. never applied (Tailwind v4 needs `@utility`).
+2. **State:** session remount / history load called `resetRun()` and wiped chrome mid-run; or Done stuck on old sessions.
 
-## State (`ui/src/stores/chat.ts`)
+## What to implement
 
-| Field | Purpose |
-|-------|---------|
-| `runStatus` | `idle \| running \| error \| cancelled` |
-| `runId` | Guard stale SSE after abort/reset |
-| `runSessionId` | Which session owns the chrome |
-| `runStage` | `{ kind, toolName?, startedAt }` |
+| UI | Component | Visible when |
+|----|-----------|--------------|
+| Footer stage strip | `RunProgress.tsx` (`StageStrip`) | Live run for **viewed** session |
+| In-thread working row | `AgentWorkingBubble.tsx` | Running + stage active + no live assistant shell yet |
+| Bubble sparkle / shimmer | `MessageBubble.tsx` | `message.streaming` |
+| Skeleton bars | working bubble | same |
 
-Stage kinds: `starting` → `thinking` → `tool` → `writing` → `done` / `error`
+## State machine
 
-## CSS (must use Tailwind `@utility`)
+**File:** `ui/src/stores/chat.ts`
 
-Animations live in `ui/src/styles/index.css` as **`@utility`** blocks so `motion-safe:` variants are emitted:
+```ts
+runStatus: 'idle' | 'running' | 'error' | 'cancelled'
+runId: string | null
+runSessionId: string | null
+runStage: { kind: RunStageKind, toolName?: string, startedAt: number } | null
+runSteps: Array<{ id, name, status }>
+```
 
-- `text-shimmer`, `agent-sparkle`, `message-enter`, `message-settle`
-- `skeleton-shimmer`, `agent-status-settle`
-- `working-dots` (+ explicit `motion-safe:working-dots::after`)
+Kinds: `starting` → `thinking` → `tool` → `writing` → `done` | `error`
 
-Plain `@layer utilities` classes do **not** get `motion-safe:` in Tailwind v4 — effects would be missing.
+### Transitions (dispatcher)
 
-## Session switch rules
+| Event | Action |
+|-------|--------|
+| `RUN_STARTED` | running, `setRunSessionId`, clearStage, `starting` |
+| Thinking start | `thinking` |
+| `TOOL_CALL_START` | `tool`, toolName |
+| `TEXT_MESSAGE_START` | `writing` |
+| `RUN_FINISHED` | finalize streaming tools, `done`, idle, clearStage after 1200ms |
+| `RUN_ERROR` | `error` or clear if abort |
 
-On `sessionId` change (`ChatColumn`):
+Also set `done` in `finishLocalRun` when client completes without waiting solely on SSE.
 
-1. If **this** session already has a live run → do **not** `resetRun()`.
-2. Otherwise `clearStreamingState()` + `resetRun()`.
-3. Load messages; check `GET /api/sessions/{id}/live`.
-4. If live → restore run chrome + poll until done.
-5. If not live → clear historical streaming flags + reset (no sticky Done).
+## CSS (critical)
 
-`runAppliesToView`: show effects when `runSessionId == null || runSessionId === viewedSessionId`.
+**File:** `ui/src/styles/index.css`
 
-## Dispatcher lifecycle
+Define animations as Tailwind v4 **`@utility`** blocks so variants exist:
 
-- `RUN_STARTED` → running + `setRunSessionId` + stage `starting`
-- Thinking / text / tools → update stage
-- `RUN_FINISHED` → `done` for ~1.2s then `clearStage()`; also client title fallback
-- After `resetRun()`, `runId` is null → reject late run-scoped events (`isCurrentRun`)
+```css
+@utility text-shimmer { … }
+@utility agent-sparkle { … }
+@utility message-enter { … }
+@utility message-settle { … }
+@utility skeleton-shimmer { … }
+@utility agent-status-settle { … }
+```
 
-## Reference files
+Add explicit:
 
-| Layer | Path |
-|-------|------|
-| Working bubble | `ui/src/components/chat/AgentWorkingBubble.tsx` |
-| Stage strip | `ui/src/components/chat/RunProgress.tsx` |
-| Message list | `ui/src/components/chat/MessageList.tsx` |
-| Session column | `ui/src/components/shell/ChatColumn.tsx` |
-| Client / live | `ui/src/lib/agui/client.ts` |
-| Styles | `ui/src/styles/index.css` |
-| Tests | `ui/test/session-history-run-ui.test.ts` |
+```css
+.motion-safe\:working-dots::after { … }
+```
+
+Components use `motion-safe:text-shimmer`, `motion-safe:agent-sparkle`, etc.
+
+**Wrong:** plain `@layer utilities { .text-shimmer {…} }` — `motion-safe:` won’t compose.
+
+## Gating by session
+
+```ts
+// MessageList / StageStrip
+runAppliesToView = runSessionId == null || runSessionId === viewedSessionId
+```
+
+Show working bubble only if `runAppliesToView && runStatus==='running' && stage not done/error && !hasLiveAssistant`.
+
+## Session switch (ChatColumn)
+
+```
+on sessionId change:
+  if isLiveRunOnSession(sessionId):
+    // do NOT reset — user is viewing the chat that is generating
+  else:
+    clearStreamingState(); resetRun()
+
+  loadSessionMessages(sessionId)  // do not stripStreaming if might be live
+
+  live = await checkLiveRun(sessionId)
+  if live: startLiveMessagePoll
+  else if !isLiveRunOnSession(sessionId):
+    clearHistoricalRunUi()  // strip streaming flags + resetRun
+```
+
+## Implementation steps
+
+1. Add run fields + `setStage` / `clearStage` / `resetRun` to chat store.
+2. Wire dispatcher stage transitions.
+3. Build StageStrip + AgentWorkingBubble.
+4. Add MessageBubble streaming chrome classes.
+5. Convert CSS to `@utility` + verify built CSS contains `.motion-safe\:text-shimmer`.
+6. Implement ChatColumn live-aware reset (see [CHAT_RELIABILITY.md](./CHAT_RELIABILITY.md)).
+7. Tests in `session-history-run-ui.test.ts`.
 
 ## Acceptance
 
-- [ ] Sending a message shows working shimmer / StageStrip on that session.
-- [ ] Opening an old session clears working/done chrome (no sticky chatbot bubble).
-- [ ] A live run on session A does not show chrome while viewing session B.
-- [ ] Done settle appears briefly after finish, then goes away.
+- [ ] Send message → shimmer / working bubble appears on that session.
+- [ ] Finish → brief Done settle → chrome clears.
+- [ ] Open old session → no sticky working chatbot.
+- [ ] Live session remount does not kill effects.
+- [ ] Reduced motion: animations gated by `motion-safe:`.
+
+## Reference files
+
+| Concern | Path |
+|---------|------|
+| Bubble | `ui/src/components/chat/AgentWorkingBubble.tsx` |
+| Strip | `ui/src/components/chat/RunProgress.tsx` |
+| List | `ui/src/components/chat/MessageList.tsx` |
+| Message | `ui/src/components/chat/MessageBubble.tsx` |
+| Column | `ui/src/components/shell/ChatColumn.tsx` |
+| Styles | `ui/src/styles/index.css` |
+| Store | `ui/src/stores/chat.ts` |
+| Tests | `ui/test/session-history-run-ui.test.ts` |

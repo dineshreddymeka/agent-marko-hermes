@@ -1,9 +1,24 @@
 # Marko ↔ Hermes One-Hop UI — Implementation Plan (Backend + Frontend)
 
-Porting guide for re‑implementing the **Agent‑Marko / Hermes** chat UI stack on another system. Covers architecture and every major feature added on branch `cursor/nextjs-ui-e2f3`: session titles, interactive A2UI forms (including multi‑form turns), Cursor‑like working/done chrome, and AG‑UI SSE.
+Porting guide for re‑implementing the **Agent‑Marko / Hermes** chat UI stack on another system.
 
-**Audience:** engineers implementing an equivalent stack (any language/framework).  
-**Reference repo:** `agent-marko-hermes` — Marko Next.js UI + Hermes FastAPI one‑hop.
+**This plan is the overview.** Detailed per-feature implementation guides live alongside it in this folder — start from [`README.md`](./README.md).
+
+| Detailed guide | Feature |
+|----------------|---------|
+| [ONE_HOP_ARCHITECTURE.md](./ONE_HOP_ARCHITECTURE.md) | Same-origin SPA + API |
+| [AUTH_AND_BOOT.md](./AUTH_AND_BOOT.md) | Token injection + headers |
+| [AGUI_EVENTS.md](./AGUI_EVENTS.md) | SSE protocol + CUSTOM events |
+| [SESSION_TITLES.md](./SESSION_TITLES.md) | Auto-title / summarization |
+| [A2UI_FORMS.md](./A2UI_FORMS.md) | Interactive forms |
+| [WORKING_DONE_EFFECTS.md](./WORKING_DONE_EFFECTS.md) | Working/done chrome |
+| [CHAT_RELIABILITY.md](./CHAT_RELIABILITY.md) | runId guards, cancel, live |
+| [FRONTEND_TOOLS.md](./FRONTEND_TOOLS.md) | Client-executed tools |
+| [CAPABILITIES.md](./CAPABILITIES.md) | OpenAPI feature flags |
+| [APP_SHELL.md](./APP_SHELL.md) | Shell, routes, shortcuts |
+| [COMPOSER_AND_MARKDOWN.md](./COMPOSER_AND_MARKDOWN.md) | Composer + markdown |
+| [PANELS.md](./PANELS.md) | All side panels |
+| [API_MAPPING.md](./API_MAPPING.md) | Full route inventory |
 
 ---
 

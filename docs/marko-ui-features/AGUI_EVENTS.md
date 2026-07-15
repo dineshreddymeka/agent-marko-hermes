@@ -1,96 +1,144 @@
-# AG-UI Events (Marko)
+# AG-UI Events — Detailed Implementation
 
-Chat transport is **AG-UI over SSE**: `POST /agui` with `Accept: text/event-stream`.
+## Transport
 
-Wire format: `data: {json}\n\n`
+```
+POST /agui
+Content-Type: application/json
+Accept: text/event-stream
+X-Hermes-Session-Token: <token>
 
-## Request (minimal)
+→ SSE frames: data: {json}\n\n
+```
+
+**Backend:** `hermes/hermes_cli/agui_endpoint.py`  
+**Client:** `ui/src/lib/agui/client.ts` (`HttpAgent` from `@ag-ui/client`)  
+**Dispatch:** `ui/src/lib/agui/dispatcher.ts`
+
+## Request body
 
 ```json
 {
   "threadId": "<session-uuid>",
   "runId": "<run-uuid>",
   "messages": [
-    { "id": "1", "role": "user", "content": "Show a contact form on the UI" }
+    { "id": "u1", "role": "user", "content": "…" },
+    { "id": "a1", "role": "assistant", "content": "…" }
   ],
-  "tools": [],
+  "tools": [ /* frontend tool schemas */ ],
   "context": [],
-  "state": null,
+  "state": { "todos": [], "a2uiAction": null },
   "forwardedProps": { "profileId": "default" }
 }
 ```
 
-## Standard events (backend → UI)
+History rule: all messages except the trailing user turn(s) become agent `conversation_history`; latest user text is the prompt.
 
-| Event | Key fields | UI effect |
-|-------|------------|-----------|
-| `RUN_STARTED` | `threadId`, `runId` | `runStatus=running`, stage `starting` |
-| `THINKING_*` | thinking deltas | stage `thinking` |
-| `TEXT_MESSAGE_START/CONTENT/END` | `messageId`, `delta` | assistant bubble; stage `writing` |
-| `TOOL_CALL_START/ARGS/END/RESULT` | tool ids + args | tool cards; stage `tool` |
-| `RUN_FINISHED` | `threadId`, `runId` | stage `done` (~1.2s) then clear |
-| `RUN_ERROR` | `message`, `code` | error banner |
+## Backend loop (implement)
 
-## Marko `CUSTOM` events
-
-Constants: `packages/shared/src/agui-events.ts`
-
-| `name` | `value` | Purpose |
-|--------|---------|---------|
-| `hermes.title` | `{ title, sessionId? }` | Sidebar + header session title |
-| `a2ui.message` | `{ surfaceId, component, complete?, data?, parentMessageId? }` | Interactive A2UI surface |
-| `hermes.context` | `{ tokensUsed, tokensMax?, sessionId? }` | Token ring / footer |
-| `hermes.approval.required` | `{ toolCallId, toolName, args }` | Approval card |
-| `hermes.skill.learned` | `{ skillId, skillName }` | Toast |
-| `hermes.cron.fired` | `{ jobId, jobName }` | Toast |
-| `hermes.cowork.progress` | `{ taskId, phase, … }` | Cowork progress |
-
-### Example: title
-
-```json
-{
-  "type": "CUSTOM",
-  "name": "hermes.title",
-  "value": { "title": "NJ", "sessionId": "<threadId>" }
-}
+```
+emit RUN_STARTED
+ensure_marko_session(threadId)
+set HERMES_PLATFORM=marko
+create AIAgent(… callbacks …, ephemeral_system_prompt=MarkoRules)
+run_conversation(user_text, history)
+  on_stream_delta → TEXT_MESSAGE_* 
+  on_reasoning → THINKING_*
+  on_tool_start/complete → TOOL_CALL_* + maybe CUSTOM a2ui.message
+sync heuristic hermes.title (early turns)
+optional hermes.context
+emit RUN_FINISHED
+finally: restore HERMES_PLATFORM, close db
 ```
 
-### Example: DynamicForm
+Empty user text → `RUN_ERROR` code `empty_input` (after STARTED).
+
+## Standard events
+
+| Event | Required fields | Dispatcher effect |
+|-------|-----------------|-------------------|
+| `RUN_STARTED` | `threadId`, `runId` | running + stage starting + runSessionId |
+| `RUN_FINISHED` | `threadId`, `runId` | done settle; title fallback; idle |
+| `RUN_ERROR` | `message`, `code?` | error or clear if abort |
+| `TEXT_MESSAGE_START` | `messageId`, `role` | ensure assistant msg; writing |
+| `TEXT_MESSAGE_CONTENT` | `messageId`, `delta` | append content |
+| `TEXT_MESSAGE_END` | `messageId` | streaming false |
+| `THINKING_START` / `THINKING_END` | | thinking chrome |
+| `THINKING_TEXT_MESSAGE_*` | `messageId`, `delta` | thinking buffer |
+| `TOOL_CALL_START` | `toolCallId`, `toolCallName`, `parentMessageId?` | tool card; stage tool |
+| `TOOL_CALL_ARGS` | `toolCallId`, `delta` | stream args JSON |
+| `TOOL_CALL_END` | `toolCallId` | execute frontend tool if any |
+| `TOOL_CALL_RESULT` | `toolCallId`, `content` | result body |
+| `STEP_STARTED` / `STEP_FINISHED` | `stepId`, `stepName` | runSteps chips |
+| `STATE_SNAPSHOT` / `STATE_DELTA` | state / ops | agentState store |
+| `MESSAGES_SNAPSHOT` | messages[] | replace session transcript |
+
+## CUSTOM events (Marko)
+
+Constants: `packages/shared/src/agui-events.ts` (`HermesCustomEvents`)
+
+| name | value | UI |
+|------|-------|-----|
+| `hermes.title` | `{ title, sessionId? }` | sessions store upsert |
+| `a2ui.message` | `{ surfaceId, component, complete?, data?, parentMessageId? }` | A2UI processor + attach |
+| `hermes.context` | `{ tokensUsed, tokensMax?, sessionId? }` | context ring |
+| `hermes.approval.required` | `{ toolCallId, toolName, args }` | ApprovalCard |
+| `hermes.skill.learned` | `{ skillId, skillName }` | toast |
+| `hermes.cron.fired` | `{ jobId, jobName }` | toast |
+| `hermes.cowork.progress` | `{ taskId, phase, text?, … }` | tool card progress |
+
+Defined in shared but not always dispatched yet: `hermes.tool.error`, `hermes.capabilities.degraded`, `hermes.delegation`.
+
+### Payload examples
+
+**Title**
 
 ```json
-{
-  "type": "CUSTOM",
-  "name": "a2ui.message",
+{ "type": "CUSTOM", "name": "hermes.title",
+  "value": { "title": "NJ", "sessionId": "…" } }
+```
+
+**A2UI**
+
+```json
+{ "type": "CUSTOM", "name": "a2ui.message",
   "value": {
-    "surfaceId": "a2ui-abc",
+    "surfaceId": "a2ui-1",
     "complete": true,
-    "parentMessageId": "<assistant-message-id>",
+    "parentMessageId": "asst-1",
     "component": {
-      "id": "contact-form",
+      "id": "form-1",
       "type": "hermes:DynamicForm",
-      "props": {
-        "title": "Contact",
-        "fields": [
-          { "name": "email", "label": "Email", "type": "email", "required": true }
-        ],
-        "submitLabel": "Send"
-      }
+      "props": { "title": "Contact", "fields": [] }
     }
-  }
-}
+  } }
 ```
 
-## Client guards
+## Client implementation details
 
-- Ignore events when `event.runId !== active runId` (after reset / abort).
-- Scope working chrome with `runSessionId === viewedSessionId`.
-- On session switch: reset run UI unless `/api/sessions/{id}/live` says live.
+1. `currentSessionId = sessionId` **before** subscribing to SSE so CUSTOM handlers receive sessionId.
+2. `isCurrentRun(event.runId)` after `resetRun()` rejects late events (`runId` null → false for scoped events).
+3. Frontend tools: include schemas in request `tools`; execute on `TOOL_CALL_END`.
+4. Approval: `respondToApproval` posts decision (when APIs exist).
 
-## Reference files
+## Tests
 
-| Layer | Path |
-|-------|------|
-| Backend | `hermes/hermes_cli/agui_endpoint.py` |
-| Client | `ui/src/lib/agui/client.ts` |
-| Dispatcher | `ui/src/lib/agui/dispatcher.ts` |
-| Shared names | `packages/shared/src/agui-events.ts` |
+- `ui/test/dispatcher-phase4.test.ts` — CUSTOM hermes.title / a2ui / toasts
+- `hermes/tests/hermes_cli/test_agui_endpoint.py` — SSE wiring
+
+## Porting checklist
+
+- [ ] SSE framing correct
+- [ ] RUN_* + TEXT_* + TOOL_* parity
+- [ ] CUSTOM title + a2ui.message
+- [ ] parentMessageId on a2ui
+- [ ] runId guards
+- [ ] Marko ephemeral prompt + platform env
+
+## See also
+
+- [SESSION_TITLES.md](./SESSION_TITLES.md)
+- [A2UI_FORMS.md](./A2UI_FORMS.md)
+- [WORKING_DONE_EFFECTS.md](./WORKING_DONE_EFFECTS.md)
+- [CHAT_RELIABILITY.md](./CHAT_RELIABILITY.md)
+- [FRONTEND_TOOLS.md](./FRONTEND_TOOLS.md)
