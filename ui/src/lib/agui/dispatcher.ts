@@ -48,6 +48,59 @@ function isCurrentRun(eventRunId: string | null | undefined): boolean {
   return String(eventRunId) === active
 }
 
+const PLACEHOLDER_TITLES = new Set([
+  '',
+  'new chat',
+  'untitled',
+  'untitled session',
+  'untitled chat',
+])
+
+function isPlaceholderSessionTitle(title: string | null | undefined): boolean {
+  if (title == null) return true
+  return PLACEHOLDER_TITLES.has(String(title).trim().toLowerCase())
+}
+
+/** Client-side mirror of backend heuristic_title — keeps sidebar titled if SSE is missed. */
+function heuristicTitleFromUserMessage(userMessage: string): string | null {
+  const text = userMessage.trim().replace(/\s+/g, ' ')
+  if (!text) return null
+  let body = text
+  for (const prefix of ['please ', 'can you ', 'could you ', 'hey ', 'hi ', 'hello ']) {
+    if (body.toLowerCase().startsWith(prefix)) {
+      body = body.slice(prefix.length)
+      break
+    }
+  }
+  const words = body.split(' ').filter(Boolean)
+  if (words.length === 0) return null
+  if (words.length === 1 && words[0].length <= 4 && /^[a-zA-Z]+$/.test(words[0])) {
+    return words[0].toUpperCase()
+  }
+  let clipped = words.slice(0, 7).join(' ')
+  if (words.length > 7 || clipped.length > 64) {
+    clipped = `${clipped.slice(0, 63).replace(/[.,;:!? ]+$/, '')}…`
+  } else {
+    clipped = clipped.replace(/[.,;:!?]+$/, '')
+  }
+  if (clipped && clipped[0] === clipped[0].toLowerCase()) {
+    clipped = clipped[0].toUpperCase() + clipped.slice(1)
+  }
+  return clipped || null
+}
+
+function ensureSessionTitleFromChat(sessionId: string | null): void {
+  if (!sessionId) return
+  const sessions = useSessionsStore.getState()
+  const session = sessions.sessions.find((s) => s.id === sessionId)
+  if (session && !isPlaceholderSessionTitle(session.title)) return
+  const messages = useChatStore.getState().messagesBySession[sessionId] ?? []
+  const firstUser = messages.find((m) => m.role === 'user' && m.content?.trim())
+  if (!firstUser?.content) return
+  const title = heuristicTitleFromUserMessage(firstUser.content)
+  if (title) sessions.updateSession(sessionId, { title })
+}
+
 /** Reset in-flight streaming UI so thinking/stop cannot stick after terminal events. */
 function finalizeRunUi(chat: ReturnType<typeof useChatStore.getState>): void {
   chat.clearStreamingState()
@@ -88,6 +141,7 @@ export function dispatchAguiEvent(event: BaseEvent, sessionId: string | null): v
       const e = event as { runId?: string }
       if (!isCurrentRun(e.runId)) break
       finalizeRunUi(chat)
+      ensureSessionTitleFromChat(sessionId)
       chat.setStage('done')
       chat.setRunStatus('idle')
       chat.setRunId(null)
@@ -361,8 +415,12 @@ export function dispatchAguiEvent(event: BaseEvent, sessionId: string | null): v
         chat.setContextUsage({ used, limit })
       } else if (name === 'hermes.title') {
         const payload = value as HermesTitlePayload
-        if (sessionId) {
-          sessions.updateSession(sessionId, { title: payload.title })
+        const targetId =
+          (typeof payload.sessionId === 'string' && payload.sessionId.trim()) ||
+          sessionId
+        const title = typeof payload.title === 'string' ? payload.title.trim() : ''
+        if (targetId && title) {
+          sessions.updateSession(targetId, { title })
         }
       } else if (name === 'hermes.skill.learned') {
         const payload = value as HermesSkillLearnedPayload

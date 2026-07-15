@@ -66,6 +66,9 @@ def heuristic_title(user_message: str, max_words: int = 7, max_len: int = 64) ->
     words = text.split()
     if not words:
         return None
+    # Short tokens / acronyms ("nj", "nyc") → uppercase
+    if len(words) == 1 and len(words[0]) <= 4 and words[0].isalpha():
+        return words[0].upper()
     clipped = " ".join(words[:max_words])
     if len(words) > max_words or len(clipped) > max_len:
         clipped = clipped[: max_len - 1].rstrip(".,;:!? ") + "…"
@@ -201,14 +204,20 @@ def auto_title_session(
 
     try:
         session_db.set_session_title(session_id, title)
-        logger.debug("Auto-generated session title: %s", title)
+        logger.info("Auto-generated session title: %s", title)
         if title_callback is not None:
             try:
                 title_callback(title)
             except Exception:
                 logger.debug("Auto-title callback failed", exc_info=True)
     except Exception as e:
-        logger.debug("Failed to set auto-generated title: %s", e)
+        logger.warning("Failed to set auto-generated title: %s", e)
+        # Still notify UI even if DB write failed (unique conflict, closed conn, …)
+        if title_callback is not None and title:
+            try:
+                title_callback(title)
+            except Exception:
+                logger.debug("Auto-title callback failed after set error", exc_info=True)
 
 
 def maybe_auto_title(

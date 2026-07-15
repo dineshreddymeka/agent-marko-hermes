@@ -494,45 +494,81 @@ def _run_agent_sync(
             for payload in _consolidate_a2ui_payloads(emitted_a2ui):
                 _persist_a2ui(db, thread_id, payload)
 
-            # Auto-summarize session title after early replies. Marko UI updates
-            # the sidebar/header from CUSTOM hermes.title on this same SSE stream.
-            if final and user_text and not cancel.is_set():
+            # Auto-summarize session title after early replies.
+            # Fast path: heuristic immediately so hermes.title always rides this
+            # SSE stream (LLM title_generation often fails / stalls with no keys).
+            reply_for_title = final or ("…" if started_text else "")
+            if user_text and reply_for_title and not cancel.is_set():
                 try:
-                    from agent.title_generator import auto_title_session
-
-                    msgs = (result or {}).get("messages") or history or []
-                    user_count = sum(
-                        1 for m in msgs if isinstance(m, dict) and m.get("role") == "user"
+                    from agent.title_generator import (
+                        auto_title_session,
+                        heuristic_title,
+                        is_placeholder_title,
                     )
-                    if user_count <= 2:
-                        title_done = threading.Event()
 
-                        def _on_title(title: str) -> None:
+                    prior_users = sum(
+                        1 for m in (history or []) if isinstance(m, dict) and m.get("role") == "user"
+                    )
+                    # First or second user turn (current message not yet in history).
+                    early_turn = prior_users <= 1
+                    existing_title = None
+                    try:
+                        existing_title = db.get_session_title(thread_id)
+                    except Exception:
+                        existing_title = None
+                    needs_title = early_turn and (
+                        not existing_title or is_placeholder_title(existing_title)
+                    )
+
+                    if needs_title:
+                        quick = heuristic_title(user_text)
+                        if quick:
                             try:
-                                emit(
-                                    {
-                                        "type": "CUSTOM",
-                                        "name": "hermes.title",
-                                        "value": {
-                                            "title": title,
-                                            "sessionId": thread_id,
-                                        },
-                                    }
+                                db.set_session_title(thread_id, quick)
+                            except Exception:
+                                _log.warning(
+                                    "Marko heuristic title persist failed for %s",
+                                    thread_id,
+                                    exc_info=True,
                                 )
-                            finally:
-                                title_done.set()
+                            emit(
+                                {
+                                    "type": "CUSTOM",
+                                    "name": "hermes.title",
+                                    "value": {
+                                        "title": quick,
+                                        "sessionId": thread_id,
+                                    },
+                                }
+                            )
 
-                        title_thread = threading.Thread(
-                            target=auto_title_session,
-                            args=(db, thread_id, user_text, final),
-                            kwargs={"title_callback": _on_title},
+                        # Optional LLM upgrade in background (own DB handle —
+                        # this request's db is closed in finally).
+                        def _llm_title_upgrade() -> None:
+                            try:
+                                from hermes_cli.marko_session import open_session_db
+
+                                upgrade_db = open_session_db(profile)
+                                try:
+                                    auto_title_session(
+                                        upgrade_db,
+                                        thread_id,
+                                        user_text,
+                                        final or quick or user_text,
+                                    )
+                                finally:
+                                    try:
+                                        upgrade_db.close()
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                _log.debug("Marko LLM title upgrade skipped", exc_info=True)
+
+                        threading.Thread(
+                            target=_llm_title_upgrade,
                             daemon=True,
-                            name="marko-auto-title",
-                        )
-                        title_thread.start()
-                        # Wait briefly so hermes.title can ride this SSE stream.
-                        title_thread.join(timeout=6.0)
-                        title_done.wait(timeout=0.25)
+                            name="marko-auto-title-upgrade",
+                        ).start()
                 except Exception:
                     _log.debug("Marko auto-title skipped", exc_info=True)
 
