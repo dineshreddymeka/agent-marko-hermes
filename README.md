@@ -29,6 +29,17 @@ agent-marko-hermes/
   scripts/          # build/dev/smoke helpers
 ```
 
+## Alternate UI — AionUi + Hermes (ACP)
+
+[AionUi](https://github.com/iOfficeAI/AionUi) as the Cowork frontend; **this repo’s Hermes** as the ACP agent backend (`hermes acp`):
+
+```bash
+bash scripts/start-aionui-hermes.sh
+# → http://127.0.0.1:25808/  (+ optional Cloudflare tunnel)
+```
+
+See [`docs/AIONUI_HERMES.md`](docs/AIONUI_HERMES.md). Marko one-hop on `:9119` is unchanged.
+
 ## Quick start (dev) — one-hop, no proxy
 
 Browser talks **directly to Hermes** (UI + `/api/*` + `/agui`). No Next rewrite

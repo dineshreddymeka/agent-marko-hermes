@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Prefer this repo's Hermes Agent over any globally installed `hermes`.
+# AionUi auto-detects Hermes via PATH and launches: hermes acp
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+export PYTHONPATH="${ROOT}/hermes${PYTHONPATH:+:$PYTHONPATH}"
+export PATH="${HOME}/.local/bin:${PATH}"
+
+if [[ -x "${HOME}/.local/bin/hermes" ]]; then
+  # Editable install from this repo (pip install -e '.[acp]')
+  exec "${HOME}/.local/bin/hermes" "$@"
+fi
+
+# Fallback: run in-tree launcher
+exec python3 "${ROOT}/hermes/hermes" "$@"
