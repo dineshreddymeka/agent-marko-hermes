@@ -1,0 +1,12 @@
+[meta]
+generated_by = "2.11.1"
+
+[project]
+enable_telemetry = false
+
+[UI]
+name = "Hermes (Chainlit)"
+default_theme = "dark"
+
+[features]
+unsafe_allow_html = false

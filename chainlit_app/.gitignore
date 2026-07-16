@@ -1,0 +1,10 @@
+# Chainlit / Hermes proxy local artifacts
+.files/
+.chainlit/translations/
+.chainlit/.langchain.db
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+*.egg-info/
