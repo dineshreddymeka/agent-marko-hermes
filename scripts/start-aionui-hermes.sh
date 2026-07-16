@@ -75,6 +75,11 @@ $(printf '%q' "${INSTALL_DIR}/aionui-web") start --port $(printf '%q' "${AIONUI_
   fi
 fi
 
+# Auto-configure provider from env when possible (makes chat actually work)
+if [[ -n "${OPENROUTER_API_KEY:-}${OPENAI_API_KEY:-}${ANTHROPIC_API_KEY:-}" ]]; then
+  bash "${ROOT}/scripts/configure-hermes-provider.sh" || true
+fi
+
 # Pin Hermes only if needed (seed skips when already online + correct override)
 AIONUI_BASE_URL="${BASE_URL}" bash "${ROOT}/scripts/seed-aionui-hermes.sh" || true
 
@@ -82,25 +87,59 @@ if [[ "$RUN_SMOKE" == "1" ]]; then
   AIONUI_BASE_URL="${BASE_URL}" python3 "${ROOT}/scripts/smoke_aionui_hermes.py" || true
 fi
 
+PROVIDER_OK=0
+PYTHONPATH="${ROOT}/hermes${PYTHONPATH:+:$PYTHONPATH}" \
+  python3 -c 'import sys; sys.path.insert(0,"'"${ROOT}"'/hermes"); from acp_adapter.auth import has_provider; sys.exit(0 if has_provider() else 1)' \
+  && PROVIDER_OK=1 || PROVIDER_OK=0
+
+# Ensure a known admin password for remote login (WebUI requires /login)
+PASS_FILE="${DATA_DIR}/.aionui-admin-pass"
+if [[ ! -f "$PASS_FILE" ]]; then
+  NEW_PASS="$("${INSTALL_DIR}/aionui-web" resetpass --data-dir "$DATA_DIR" 2>/dev/null \
+    | awk -F': ' '/new password:/{print $2; exit}')"
+  if [[ -n "${NEW_PASS:-}" ]]; then
+    printf '%s\n' "$NEW_PASS" > "$PASS_FILE"
+    chmod 600 "$PASS_FILE"
+  fi
+fi
+
 echo
 echo "✓ AionUi + Hermes (ACP) — local"
 echo "  UI:     ${BASE_URL}/"
 echo "  Hermes: ${HERMES_BIN}"
 echo "  Data:   ${DATA_DIR}"
+if [[ -f "$PASS_FILE" ]]; then
+  echo "  Login:  admin / $(cat "$PASS_FILE")"
+fi
+if [[ "$PROVIDER_OK" -eq 1 ]]; then
+  echo "  Chat:   provider ready"
+else
+  echo "  Chat:   BLOCKED — no LLM provider"
+  echo "          export OPENROUTER_API_KEY=... && bash scripts/configure-hermes-provider.sh"
+fi
 echo
 
 if [[ "$OPEN_TUNNEL" == "1" ]]; then
   ensure_session "$SESSION_TUNNEL" "$ROOT"
   tmux_cmd send-keys -t "$SESSION_TUNNEL:0.0" C-c C-m
   sleep 0.2
+  rm -f /tmp/aionui-tunnel.log
   if command -v cloudflared >/dev/null 2>&1; then
     tmux_cmd send-keys -t "$SESSION_TUNNEL:0.0" \
-      "cloudflared tunnel --url http://127.0.0.1:${AIONUI_PORT}" C-m
+      "cloudflared tunnel --url http://127.0.0.1:${AIONUI_PORT} 2>&1 | tee /tmp/aionui-tunnel.log" C-m
   else
     tmux_cmd send-keys -t "$SESSION_TUNNEL:0.0" \
-      "npx --yes cloudflared tunnel --url http://127.0.0.1:${AIONUI_PORT}" C-m
+      "npx --yes cloudflared tunnel --url http://127.0.0.1:${AIONUI_PORT} 2>&1 | tee /tmp/aionui-tunnel.log" C-m
   fi
   echo "Tunnel starting (session ${SESSION_TUNNEL})…"
+  for _ in $(seq 1 40); do
+    TUNNEL_URL="$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/aionui-tunnel.log 2>/dev/null | head -1 || true)"
+    if [[ -n "${TUNNEL_URL:-}" ]]; then
+      echo "  Public: ${TUNNEL_URL}"
+      break
+    fi
+    sleep 0.25
+  done
 fi
 
 echo "Stop: tmux kill-session -t ${SESSION_UI}"

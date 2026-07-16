@@ -1,7 +1,9 @@
 # AionUi + Hermes Agent (ACP)
 
-**Branch:** `cursor/aionui-backend-hermes-2581`  
+**Branch:** `cursor/aionui-hermes-2581`  
 **Status:** alternate frontend — Marko/`ui/` remains the one-hop SPA on `:9119`; this path uses [AionUi](https://github.com/iOfficeAI/AionUi) as the Cowork UI with **this repo’s Hermes** as an ACP agent backend.
+
+> **Chat will not work until Hermes has an LLM key.** ACP health can be `online` while prompts fail with `USER_AGENT_AUTH_REQUIRED` / “The selected Agent requires authentication”.
 
 ## Architecture
 
@@ -42,20 +44,23 @@ Reset password later:
 ~/.local/share/aionui-web/aionui-web resetpass
 ```
 
+### Make chat work (required)
+
+ACP “online” only means `hermes acp` spawns. Sending a message needs a provider:
+
+```bash
+export OPENROUTER_API_KEY=sk-or-...   # or OPENAI_API_KEY / ANTHROPIC_API_KEY
+bash scripts/configure-hermes-provider.sh
+# or: npm run configure:hermes-provider
+```
+
 ### Select Hermes
 
 AionUi **auto-detects** Hermes when `hermes` is on `PATH` (builtin ACP backend `hermes`, args `["acp"]`). The start script then pins `command_override` to `scripts/bin/hermes` (Python shim) so aioncore always launches **this checkout**.
 
-1. Open AionUi → assistant / agent selector.
-2. Choose **Hermes**.
-3. If status is offline with `No LLM provider configured`, set up Hermes auth/model first:
-
-```bash
-hermes setup model
-# or: cd hermes && PYTHONPATH=. python3 -m hermes_cli.main setup model
-```
-
-Then re-run health check:
+1. Log in (username `admin`; password printed by start script / `~/.aionui-hermes/.aionui-admin-pass`).
+2. Open AionUi → assistant / agent selector → **Hermes**.
+3. If chat says authentication required, configure a provider (above), then retry.
 
 ```bash
 npm run seed:aionui-hermes

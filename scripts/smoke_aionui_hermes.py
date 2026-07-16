@@ -78,6 +78,36 @@ def main() -> int:
             f"({hermes_agent.get('last_check_error_message') or 'no error message'})"
         )
 
+    # Chat readiness (ACP online ≠ LLM ready)
+    try:
+        import subprocess
+
+        chk = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import sys; sys.path.insert(0,'hermes'); "
+                "from acp_adapter.auth import has_provider; "
+                "sys.exit(0 if has_provider() else 1)",
+            ],
+            cwd=os.environ.get("AIONUI_REPO_ROOT")
+            or os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
+            env={**os.environ, "PYTHONPATH": "hermes"},
+            check=False,
+        )
+        if chk.returncode != 0:
+            print(
+                "WARN: Hermes ACP is online but no LLM provider is configured — "
+                "chat will show USER_AGENT_AUTH_REQUIRED. "
+                "Run: export OPENROUTER_API_KEY=... && bash scripts/configure-hermes-provider.sh"
+            )
+            if os.environ.get("AIONUI_SMOKE_REQUIRE_PROVIDER", "0") == "1":
+                errors.append("Hermes has no LLM provider (chat blocked)")
+        else:
+            print("Hermes provider: ready")
+    except Exception as exc:
+        print(f"WARN: provider check failed: {exc}")
+
     if errors:
         print("FAIL:")
         for e in errors:

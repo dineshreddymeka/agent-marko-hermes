@@ -16,6 +16,7 @@
     "start:aionui-hermes": "bash scripts/start-aionui-hermes.sh",
     "smoke:aionui-hermes": "python3 scripts/smoke_aionui_hermes.py",
     "seed:aionui-hermes": "bash scripts/seed-aionui-hermes.sh",
+    "configure:hermes-provider": "bash scripts/configure-hermes-provider.sh",
     "build": "npm run build:ui",
     "test": "npm run test -w app",
     "test:ui": "npm run test -w app",
