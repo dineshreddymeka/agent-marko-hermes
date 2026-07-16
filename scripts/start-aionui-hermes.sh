@@ -16,7 +16,7 @@ tmux_cmd() {
 
 INSTALL_DIR="${AIONUI_WEB_DIR:-${HOME}/.local/share/aionui-web}"
 AIONUI_PORT="${AIONUI_PORT:-25808}"
-OPEN_TUNNEL="${OPEN_TUNNEL:-1}"
+OPEN_TUNNEL="${OPEN_TUNNEL:-0}"
 OPEN_REMOTE="${AIONUI_REMOTE:-1}"
 SESSION_UI=aionui-web
 SESSION_TUNNEL=aionui-tunnel

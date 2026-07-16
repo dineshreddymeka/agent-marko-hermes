@@ -23,14 +23,13 @@ Hermes Agent  (this repo: hermes/)   ← AIAgent / tools / memory / skills
 
 ```bash
 bash scripts/start-aionui-hermes.sh
-# Local:  http://127.0.0.1:25808/
-# Public: trycloudflare.com URL (OPEN_TUNNEL=1 by default)
+# Local only:  http://127.0.0.1:25808/
 ```
 
-Skip tunnel:
+Optional public tunnel (off by default):
 
 ```bash
-OPEN_TUNNEL=0 bash scripts/start-aionui-hermes.sh
+OPEN_TUNNEL=1 bash scripts/start-aionui-hermes.sh
 ```
 
 ### First login
