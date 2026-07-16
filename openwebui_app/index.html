@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hermes · Open WebUI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0f1419;
+      --rail: #151c24;
+      --ink: #e8eef4;
+      --muted: #8b9aab;
+      --accent: #3d8bfd;
+      --line: rgba(255,255,255,0.08);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "DM Sans", system-ui, sans-serif;
+    }
+    .shell {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      height: 100vh;
+      background:
+        radial-gradient(1200px 600px at 0% 0%, rgba(61,139,253,0.12), transparent 55%),
+        radial-gradient(900px 500px at 100% 100%, rgba(20, 80, 60, 0.18), transparent 50%),
+        var(--bg);
+    }
+    .rail {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      padding: 1.25rem 0.85rem;
+      background: color-mix(in srgb, var(--rail) 92%, transparent);
+      border-right: 1px solid var(--line);
+      backdrop-filter: blur(8px);
+      overflow-y: auto;
+    }
+    .brand {
+      font-family: "Instrument Serif", Georgia, serif;
+      font-size: 1.65rem;
+      letter-spacing: 0.02em;
+      padding: 0.35rem 0.65rem 1rem;
+      line-height: 1.1;
+    }
+    .brand span {
+      display: block;
+      font-family: "DM Sans", sans-serif;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-top: 0.35rem;
+    }
+    .section {
+      margin-top: 0.75rem;
+      padding: 0.4rem 0.65rem;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .nav a {
+      display: block;
+      text-decoration: none;
+      color: var(--ink);
+      padding: 0.55rem 0.7rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+    .nav a:hover, .nav a.active {
+      background: rgba(61,139,253,0.16);
+      color: #fff;
+    }
+    .nav a small {
+      display: block;
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 400;
+      margin-top: 0.1rem;
+    }
+    .main {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .main iframe {
+      flex: 1;
+      width: 100%;
+      border: 0;
+      background: #000;
+    }
+    .status {
+      margin-top: auto;
+      padding: 0.75rem 0.65rem 0.25rem;
+      font-size: 0.72rem;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+    }
+    .status code { color: #b7d0f0; }
+    @media (max-width: 800px) {
+      .shell { grid-template-columns: 1fr; }
+      .rail { max-height: 40vh; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <div class="brand">Hermes<span>Open WebUI · agent backend</span></div>
+
+      <div class="section">Chat</div>
+      <nav class="nav" id="chat-nav">
+        <a href="#" data-frame="chat" class="active">Open WebUI chat<small>Left sidebar chats · Hermes tools inline</small></a>
+      </nav>
+
+      <div class="section">Hermes actions</div>
+      <nav class="nav" id="hermes-nav">
+        <a href="#" data-url="__HERMES__/panel/sessions">Sessions<small>Thread history</small></a>
+        <a href="#" data-url="__HERMES__/panel/workspace">Workspace<small>Files &amp; git</small></a>
+        <a href="#" data-url="__HERMES__/panel/skills">Skills<small>Skill registry</small></a>
+        <a href="#" data-url="__HERMES__/panel/memory">Memory<small>Long-term notes</small></a>
+        <a href="#" data-url="__HERMES__/panel/connections">Connections<small>MCP · Gateway</small></a>
+        <a href="#" data-url="__HERMES__/panel/office">Office<small>Briefing · SSO / CLI JWT</small></a>
+        <a href="#" data-url="__HERMES__/panel/cron">Cron<small>Scheduled jobs</small></a>
+        <a href="#" data-url="__HERMES__/panel/kanban">Kanban<small>Work board</small></a>
+        <a href="#" data-url="__HERMES__/panel/profiles">Profiles<small>Agent profiles</small></a>
+        <a href="#" data-url="__HERMES__/panel/settings">Settings<small>Model · config</small></a>
+        <a href="#" data-url="__HERMES__/docs">API docs<small>OpenAPI · /docs</small></a>
+      </nav>
+
+      <div class="status">
+        Backend <code>hermes-agent</code> via API server<br />
+        Chat <code id="owui-url">:3000</code> · Hermes <code id="hermes-url">:9119</code>
+      </div>
+    </aside>
+    <main class="main">
+      <iframe id="frame" title="Open WebUI" src="about:blank" allow="clipboard-read; clipboard-write"></iframe>
+    </main>
+  </div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const OWUI = params.get("owui") || (window.__OWUI_URL__ || "http://127.0.0.1:3000");
+    const HERMES = params.get("hermes") || (window.__HERMES_URL__ || "http://127.0.0.1:9119");
+    const frame = document.getElementById("frame");
+    document.getElementById("owui-url").textContent = OWUI.replace(/^https?:\/\//, "");
+    document.getElementById("hermes-url").textContent = HERMES.replace(/^https?:\/\//, "");
+
+    document.querySelectorAll("#hermes-nav a").forEach((a) => {
+      a.dataset.url = a.dataset.url.replace("__HERMES__", HERMES);
+    });
+
+    function setActive(el) {
+      document.querySelectorAll(".nav a").forEach((n) => n.classList.remove("active"));
+      el.classList.add("active");
+    }
+
+    document.getElementById("chat-nav").addEventListener("click", (e) => {
+      const a = e.target.closest("a");
+      if (!a) return;
+      e.preventDefault();
+      setActive(a);
+      frame.src = OWUI;
+    });
+
+    document.getElementById("hermes-nav").addEventListener("click", (e) => {
+      const a = e.target.closest("a");
+      if (!a) return;
+      e.preventDefault();
+      setActive(a);
+      frame.src = a.dataset.url;
+    });
+
+    frame.src = OWUI;
+  </script>
+</body>
+</html>

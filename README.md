@@ -30,9 +30,20 @@ agent-marko-hermes/
   scripts/          # build/dev/smoke helpers
 ```
 
+## Alternate UI — Open WebUI + Hermes API server
+
+Left-rail shell (Hermes panel actions) + Open WebUI chat backed by Hermes agent:
+
+```bash
+bash scripts/start-openwebui-hermes.sh
+# → http://127.0.0.1:3200/  (shell) · :3000 (Open WebUI) · :8642 (API)
+```
+
+See [docs/OPENWEBUI_HERMES.md](docs/OPENWEBUI_HERMES.md).
+
 ## Alternate UI — Chainlit + Hermes proxy
 
-On branch `cursor/chainlit-hermes-e2f3`, default preview is Chainlit (not Marko):
+On branch `cursor/chainlit-hermes-e2f3`, Chainlit against `hermes proxy`:
 
 ```bash
 bash scripts/start-chainlit-hermes.sh

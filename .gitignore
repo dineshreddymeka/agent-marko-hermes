@@ -20,3 +20,4 @@ node_modules/
 .hermes-web-smoke.log
 
 .chainlit/
+open_webui_data/
