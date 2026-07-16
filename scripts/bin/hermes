@@ -1,0 +1,38 @@
+#!/usr/bin/python3
+"""PATH shim so AionUi always launches this repo's Hermes (ACP-capable).
+
+Aioncore spawns `hermes acp` with a cleared/minimal PATH and blocks PATH
+overrides. Use an absolute ``/usr/bin/python3`` shebang — ``env python3``
+fails when ``/usr/bin`` is not on PATH.
+"""
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+HERMES_SRC = ROOT / "hermes"
+LOCAL_BIN = Path.home() / ".local" / "bin"
+
+# Prefer this checkout on sys.path
+hermes_src = str(HERMES_SRC)
+if hermes_src not in sys.path:
+    sys.path.insert(0, hermes_src)
+
+os.environ["PYTHONPATH"] = (
+    hermes_src + (os.pathsep + os.environ["PYTHONPATH"] if os.environ.get("PYTHONPATH") else "")
+)
+
+# Keep user local bins discoverable for child tools
+path_parts = [str(ROOT / "scripts" / "bin"), str(LOCAL_BIN)]
+cur = os.environ.get("PATH", "")
+for p in path_parts:
+    if p and p not in cur.split(os.pathsep):
+        cur = p + os.pathsep + cur
+os.environ["PATH"] = cur
+
+from hermes_cli.main import main  # noqa: E402
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -120,6 +120,15 @@ def _acp_stderr_print(*args, **kwargs) -> None:
     print(*args, **kwargs)
 
 
+def _is_provider_not_configured_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return (
+        "no llm provider configured" in msg
+        or "no inference provider configured" in msg
+        or "no_provider_configured" in msg
+    )
+
+
 def _register_task_cwd(task_id: str, cwd: str) -> None:
     """Bind a task/session id to the editor's working directory for tools.
 
@@ -208,25 +217,78 @@ class SessionManager:
     # ---- public API ---------------------------------------------------------
 
     def create_session(self, cwd: str = ".") -> SessionState:
-        """Create a new session with a unique ID and a fresh AIAgent."""
+        """Create a new session with a unique ID and a fresh AIAgent.
+
+        If no LLM provider is configured yet, the session is still created with
+        ``agent=None``. AionUi / Zed health-checks only require ``session/new``
+        to succeed; the agent is built lazily on the first prompt via
+        :meth:`ensure_agent`.
+        """
         import threading
 
         cwd = _translate_acp_cwd(cwd)
         session_id = str(uuid.uuid4())
-        agent = self._make_agent(session_id=session_id, cwd=cwd)
+        agent = None
+        model = ""
+        # Cheap preflight: skip AIAgent import/init when nothing is configured.
+        # Health-check only needs session/new to succeed.
+        try:
+            from acp_adapter.auth import has_provider
+
+            provider_ready = has_provider()
+        except Exception:
+            provider_ready = True  # fall through to _make_agent
+
+        if not provider_ready:
+            logger.warning(
+                "ACP session %s created without provider (deferred agent): "
+                "No LLM provider configured. Run `hermes model` to select a provider, "
+                "or run `hermes setup` for first-time configuration.",
+                session_id,
+            )
+        else:
+            try:
+                agent = self._make_agent(session_id=session_id, cwd=cwd)
+                model = getattr(agent, "model", "") or ""
+            except RuntimeError as exc:
+                if not _is_provider_not_configured_error(exc):
+                    raise
+                logger.warning(
+                    "ACP session %s created without provider (deferred agent): %s",
+                    session_id,
+                    exc,
+                )
         state = SessionState(
             session_id=session_id,
             agent=agent,
             cwd=cwd,
-            model=getattr(agent, "model", "") or "",
+            model=model,
             cancel_event=threading.Event(),
         )
         with self._lock:
             self._sessions[session_id] = state
         _register_task_cwd(session_id, cwd)
         self._persist(state)
-        logger.info("Created ACP session %s (cwd=%s)", session_id, cwd)
+        logger.info("Created ACP session %s (cwd=%s, agent=%s)", session_id, cwd, "ready" if agent else "deferred")
         return state
+
+    def ensure_agent(self, state: SessionState):
+        """Build the AIAgent for *state* if it was deferred at session create.
+
+        Raises the original ``RuntimeError`` from agent init when still
+        unconfigured so callers can map it to ACP ``auth_required``.
+        """
+        if state.agent is not None:
+            return state.agent
+        agent = self._make_agent(
+            session_id=state.session_id,
+            cwd=state.cwd,
+            model=state.model or None,
+        )
+        state.agent = agent
+        state.model = getattr(agent, "model", "") or state.model
+        self._persist(state)
+        return agent
 
     def get_session(self, session_id: str) -> Optional[SessionState]:
         """Return the session for *session_id*, or ``None``.
@@ -478,9 +540,10 @@ class SessionManager:
             # yet). That path still rolls back on a mid-rewrite failure so the
             # previously persisted conversation survives (salvaged from #13675).
             agent = state.agent
-            agent_db = getattr(agent, "_session_db", None)
+            agent_db = getattr(agent, "_session_db", None) if agent is not None else None
             agent_owns_persistence = (
-                agent_db is not None
+                agent is not None
+                and agent_db is not None
                 and agent_db is db
                 and bool(getattr(agent, "_session_db_created", False))
             )
@@ -552,6 +615,7 @@ class SessionManager:
             logger.warning("Failed to load messages for ACP session %s", session_id, exc_info=True)
             history = []
 
+        agent = None
         try:
             agent = self._make_agent(
                 session_id=session_id,
@@ -561,6 +625,15 @@ class SessionManager:
                 base_url=restored_base_url,
                 api_mode=restored_api_mode,
             )
+        except RuntimeError as exc:
+            if not _is_provider_not_configured_error(exc):
+                logger.warning("Failed to recreate agent for ACP session %s", session_id, exc_info=True)
+                return None
+            logger.warning(
+                "Restored ACP session %s with deferred agent (no provider): %s",
+                session_id,
+                exc,
+            )
         except Exception:
             logger.warning("Failed to recreate agent for ACP session %s", session_id, exc_info=True)
             return None
@@ -569,7 +642,7 @@ class SessionManager:
             session_id=session_id,
             agent=agent,
             cwd=cwd,
-            model=model or getattr(agent, "model", "") or "",
+            model=model or (getattr(agent, "model", "") if agent is not None else "") or "",
             history=history,
             cancel_event=threading.Event(),
         )
@@ -649,8 +722,20 @@ class SessionManager:
                     "args": list(runtime.get("args") or []),
                 }
             )
-        except Exception:
-            logger.debug("ACP session falling back to default provider resolution", exc_info=True)
+        except Exception as exc:
+            # Fail fast for ACP session/new health-checks. Falling through to
+            # AIAgent() probes OpenRouter/auxiliary and costs hundreds of ms
+            # before raising the same "No LLM provider configured" error.
+            raise RuntimeError(
+                "No LLM provider configured. Run `hermes model` to select a "
+                "provider, or run `hermes setup` for first-time configuration."
+            ) from exc
+
+        if not kwargs.get("provider") and not kwargs.get("api_key"):
+            raise RuntimeError(
+                "No LLM provider configured. Run `hermes model` to select a "
+                "provider, or run `hermes setup` for first-time configuration."
+            )
 
         _register_task_cwd(session_id, cwd)
         agent = AIAgent(**kwargs)

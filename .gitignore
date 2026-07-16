@@ -19,3 +19,8 @@ hermes/hermes_cli/web_dist/
 node_modules/
 .hermes-web-smoke.log
 
+# Optional local clone of https://github.com/iOfficeAI/AionUi (~900MB)
+# Prefer: bash scripts/start-aionui-hermes.sh (prebuilt aionui-web)
+aionui/
+.aionui-hermes/
+
