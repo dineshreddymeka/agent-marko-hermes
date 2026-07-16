@@ -230,17 +230,34 @@ class SessionManager:
         session_id = str(uuid.uuid4())
         agent = None
         model = ""
+        # Cheap preflight: skip AIAgent import/init when nothing is configured.
+        # Health-check only needs session/new to succeed.
         try:
-            agent = self._make_agent(session_id=session_id, cwd=cwd)
-            model = getattr(agent, "model", "") or ""
-        except RuntimeError as exc:
-            if not _is_provider_not_configured_error(exc):
-                raise
+            from acp_adapter.auth import has_provider
+
+            provider_ready = has_provider()
+        except Exception:
+            provider_ready = True  # fall through to _make_agent
+
+        if not provider_ready:
             logger.warning(
-                "ACP session %s created without provider (deferred agent): %s",
+                "ACP session %s created without provider (deferred agent): "
+                "No LLM provider configured. Run `hermes model` to select a provider, "
+                "or run `hermes setup` for first-time configuration.",
                 session_id,
-                exc,
             )
+        else:
+            try:
+                agent = self._make_agent(session_id=session_id, cwd=cwd)
+                model = getattr(agent, "model", "") or ""
+            except RuntimeError as exc:
+                if not _is_provider_not_configured_error(exc):
+                    raise
+                logger.warning(
+                    "ACP session %s created without provider (deferred agent): %s",
+                    session_id,
+                    exc,
+                )
         state = SessionState(
             session_id=session_id,
             agent=agent,
@@ -705,8 +722,20 @@ class SessionManager:
                     "args": list(runtime.get("args") or []),
                 }
             )
-        except Exception:
-            logger.debug("ACP session falling back to default provider resolution", exc_info=True)
+        except Exception as exc:
+            # Fail fast for ACP session/new health-checks. Falling through to
+            # AIAgent() probes OpenRouter/auxiliary and costs hundreds of ms
+            # before raising the same "No LLM provider configured" error.
+            raise RuntimeError(
+                "No LLM provider configured. Run `hermes model` to select a "
+                "provider, or run `hermes setup` for first-time configuration."
+            ) from exc
+
+        if not kwargs.get("provider") and not kwargs.get("api_key"):
+            raise RuntimeError(
+                "No LLM provider configured. Run `hermes model` to select a "
+                "provider, or run `hermes setup` for first-time configuration."
+            )
 
         _register_task_cwd(session_id, cwd)
         agent = AIAgent(**kwargs)

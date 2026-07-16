@@ -87,7 +87,7 @@ Verified API surface (local WebUI, auth disabled in local mode):
 | `AIONUI_WEB_DIR` | `~/.local/share/aionui-web` | Install location for `aionui-web` |
 | `AIONUI_WEB_VERSION` | `latest` | Pin installer version (e.g. `2.1.35`) |
 | `AIONUI_WEB_FORCE` | `0` | Reinstall WebUI tarball when `1` |
-| `OPEN_TUNNEL` | `1` | Cloudflare quick tunnel |
+| `OPEN_TUNNEL` | `0` | Cloudflare quick tunnel (opt-in) |
 
 ## Files
 
