@@ -14,6 +14,8 @@
     "dev": "bash scripts/start-hermes-ui.sh --skip-build",
     "start:hermes-ui": "bash scripts/start-hermes-ui.sh",
     "start:aionui-hermes": "bash scripts/start-aionui-hermes.sh",
+    "smoke:aionui-hermes": "python3 scripts/smoke_aionui_hermes.py",
+    "seed:aionui-hermes": "bash scripts/seed-aionui-hermes.sh",
     "build": "npm run build:ui",
     "test": "npm run test -w app",
     "test:ui": "npm run test -w app",

@@ -1,15 +1,38 @@
-#!/usr/bin/env bash
-# Prefer this repo's Hermes Agent over any globally installed `hermes`.
-# AionUi auto-detects Hermes via PATH and launches: hermes acp
-set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-export PYTHONPATH="${ROOT}/hermes${PYTHONPATH:+:$PYTHONPATH}"
-export PATH="${HOME}/.local/bin:${PATH}"
+#!/usr/bin/env python3
+"""PATH shim so AionUi always launches this repo's Hermes (ACP-capable).
 
-if [[ -x "${HOME}/.local/bin/hermes" ]]; then
-  # Editable install from this repo (pip install -e '.[acp]')
-  exec "${HOME}/.local/bin/hermes" "$@"
-fi
+Aioncore spawns `hermes acp` with a minimal PATH; a bash wrapper using
+`#!/usr/bin/env bash` can fail with \"bash: No such file or directory\".
+This Python entrypoint stays compatible with that spawn environment.
+"""
+from __future__ import annotations
 
-# Fallback: run in-tree launcher
-exec python3 "${ROOT}/hermes/hermes" "$@"
+import os
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+HERMES_SRC = ROOT / "hermes"
+LOCAL_BIN = Path.home() / ".local" / "bin"
+
+# Prefer this checkout on sys.path
+hermes_src = str(HERMES_SRC)
+if hermes_src not in sys.path:
+    sys.path.insert(0, hermes_src)
+
+os.environ["PYTHONPATH"] = (
+    hermes_src + (os.pathsep + os.environ["PYTHONPATH"] if os.environ.get("PYTHONPATH") else "")
+)
+
+# Keep user local bins discoverable for child tools
+path_parts = [str(ROOT / "scripts" / "bin"), str(LOCAL_BIN)]
+cur = os.environ.get("PATH", "")
+for p in path_parts:
+    if p and p not in cur.split(os.pathsep):
+        cur = p + os.pathsep + cur
+os.environ["PATH"] = cur
+
+from hermes_cli.main import main  # noqa: E402
+
+if __name__ == "__main__":
+    raise SystemExit(main())

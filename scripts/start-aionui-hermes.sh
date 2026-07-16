@@ -79,16 +79,21 @@ if [[ "$ui_ok" -ne 1 ]]; then
   exit 1
 fi
 
+# Pin builtin Hermes agent to this checkout's shim + print health
+bash "${ROOT}/scripts/seed-aionui-hermes.sh" || true
+python3 "${ROOT}/scripts/smoke_aionui_hermes.py" || true
+
 echo
 echo "✓ AionUi + Hermes (ACP)"
 echo "  UI:     http://127.0.0.1:${AIONUI_PORT}/"
 echo "  Hermes: ${HERMES_BIN}  (AionUi launches: hermes acp)"
 echo "  Data:   ${DATA_DIR}"
 echo
-echo "  In AionUi: pick Hermes Agent in the agent selector (auto-detected)."
-echo "  If missing: Settings → Agent Management → Custom Agents"
-echo "    command: hermes    args: acp"
+echo "  In AionUi: pick Hermes (auto-detected builtin ACP agent)."
+echo "  If offline: configure a model first →  hermes setup model"
+echo "  Smoke:      python3 scripts/smoke_aionui_hermes.py"
 echo
+
 
 PUBLIC_URL=""
 if [[ "$OPEN_TUNNEL" == "1" ]]; then

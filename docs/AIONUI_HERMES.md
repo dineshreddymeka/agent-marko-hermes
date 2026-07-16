@@ -1,6 +1,6 @@
 # AionUi + Hermes Agent (ACP)
 
-**Branch:** `cursor/aionui-hermes-2581`  
+**Branch:** `cursor/aionui-backend-hermes-2581`  
 **Status:** alternate frontend — Marko/`ui/` remains the one-hop SPA on `:9119`; this path uses [AionUi](https://github.com/iOfficeAI/AionUi) as the Cowork UI with **this repo’s Hermes** as an ACP agent backend.
 
 ## Architecture
@@ -45,14 +45,31 @@ Reset password later:
 
 ### Select Hermes
 
-1. Open AionUi → agent selector on the welcome / new chat screen.
-2. Choose **Hermes Agent** (auto-detected when `hermes` is on `PATH`).
-3. If it does not appear: **Settings → Agent Management → Custom Agents**
-   - Display name: `Hermes Agent`
-   - Command: `hermes`
-   - Arguments: `acp`
+AionUi **auto-detects** Hermes when `hermes` is on `PATH` (builtin ACP backend `hermes`, args `["acp"]`). The start script then pins `command_override` to `scripts/bin/hermes` (Python shim) so aioncore always launches **this checkout**.
 
-The start script puts `scripts/bin/hermes` ahead of `PATH` so AionUi always spawns **this checkout’s** Hermes (with ACP), not an unrelated global install.
+1. Open AionUi → assistant / agent selector.
+2. Choose **Hermes**.
+3. If status is offline with `No LLM provider configured`, set up Hermes auth/model first:
+
+```bash
+hermes setup model
+# or: cd hermes && PYTHONPATH=. python3 -m hermes_cli.main setup model
+```
+
+Then re-run health check:
+
+```bash
+npm run seed:aionui-hermes
+npm run smoke:aionui-hermes
+```
+
+Verified API surface (local WebUI, auth disabled in local mode):
+
+| Endpoint | Expect |
+|----------|--------|
+| `GET /api/assistants` | entry with `agent.acp_backend == "hermes"` |
+| `GET /api/agents/management` | `backend: hermes`, `args: ["acp"]`, `installed: true` |
+| `PUT /api/agents/{id}/overrides` | `{"command_override":"<repo>/scripts/bin/hermes"}` |
 
 ## Env knobs
 
@@ -73,7 +90,9 @@ The start script puts `scripts/bin/hermes` ahead of `PATH` so AionUi always spaw
 | [`scripts/start-aionui-hermes.sh`](../scripts/start-aionui-hermes.sh) | Install + start WebUI with Hermes on PATH |
 | [`scripts/ensure-aionui-web.sh`](../scripts/ensure-aionui-web.sh) | Official `install-web.sh` wrapper |
 | [`scripts/ensure-hermes-acp.sh`](../scripts/ensure-hermes-acp.sh) | `pip install -e hermes[acp]` + ACP check |
-| [`scripts/bin/hermes`](../scripts/bin/hermes) | PATH shim → this repo’s Hermes |
+| [`scripts/bin/hermes`](../scripts/bin/hermes) | Python PATH shim → this repo’s Hermes |
+| [`scripts/seed-aionui-hermes.sh`](../scripts/seed-aionui-hermes.sh) | Pin `command_override` + health-check |
+| [`scripts/smoke_aionui_hermes.py`](../scripts/smoke_aionui_hermes.py) | Assert Hermes appears in assistants/management |
 
 ## Optional: develop against AionUi source
 
