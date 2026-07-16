@@ -47,7 +47,17 @@ git clone https://github.com/nesquena/hermes-webui.git .deps/hermes-webui
 cd .deps/hermes-webui
 export HERMES_WEBUI_AGENT_DIR="$(pwd)/../../hermes"
 export HERMES_WEBUI_SKIP_ONBOARDING=1
-python3 bootstrap.py --foreground --host 127.0.0.1 --port 8787
+python3 bootstrap.py --foreground --host 127.0.0.1 --no-browser 8787
+```
+
+Recommended for this monorepo: create `hermes/.venv` and install agent + WebUI deps once:
+
+```bash
+cd hermes
+python3 -m venv .venv
+.venv/bin/pip install -e ".[web]"
+.venv/bin/pip install -r ../.deps/hermes-webui/requirements.txt
+# start script auto-picks hermes/.venv/bin/python via HERMES_WEBUI_PYTHON
 ```
 
 Useful env vars (upstream):

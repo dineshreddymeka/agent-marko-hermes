@@ -8,6 +8,12 @@ DEPS_DIR="${HERMES_WEBUI_CLONE_DIR:-$ROOT/.deps/hermes-webui}"
 AGENT_DIR="${HERMES_WEBUI_AGENT_DIR:-$ROOT/hermes}"
 HOST="${HERMES_WEBUI_HOST:-127.0.0.1}"
 PORT="${HERMES_WEBUI_PORT:-8787}"
+
+# Prefer this repo's Hermes venv when present (has AIAgent + WebUI deps).
+if [[ -z "${HERMES_WEBUI_PYTHON:-}" && -x "$AGENT_DIR/.venv/bin/python" ]]; then
+  HERMES_WEBUI_PYTHON="$AGENT_DIR/.venv/bin/python"
+fi
+
 TMUX_CFG="/exec-daemon/tmux.portal.conf"
 [[ -f "$TMUX_CFG" ]] || TMUX_CFG=""
 tmux_cmd() {
@@ -28,7 +34,9 @@ fi
 # Free any prior process on the WebUI port.
 fuser -k "${PORT}/tcp" 2>/dev/null || true
 for _ in $(seq 1 40); do
-  ss -ltn 2>/dev/null | grep -q ":${PORT} " || break
+  if ! (command -v ss >/dev/null && ss -ltn 2>/dev/null | grep -q ":${PORT} "); then
+    break
+  fi
   sleep 0.05
 done
 
@@ -37,21 +45,49 @@ export HERMES_WEBUI_HOST="$HOST"
 export HERMES_WEBUI_PORT="$PORT"
 export HERMES_WEBUI_SKIP_ONBOARDING="${HERMES_WEBUI_SKIP_ONBOARDING:-1}"
 export HERMES_WEBUI_FOREGROUND=1
-# Prefer agent checkout pythonpath; bootstrap creates its own .venv if needed.
 export PYTHONPATH="${AGENT_DIR}${PYTHONPATH:+:$PYTHONPATH}"
+if [[ -n "${HERMES_WEBUI_PYTHON:-}" ]]; then
+  export HERMES_WEBUI_PYTHON
+fi
 
 SESSION="hermes-webui"
 tmux_cmd has-session -t "=$SESSION" 2>/dev/null || \
   tmux_cmd new-session -d -s "$SESSION" -c "$DEPS_DIR" -- "${SHELL:-bash}" -l
 tmux_cmd send-keys -t "${SESSION}:0.0" C-c C-m
 sleep 0.2
-tmux_cmd send-keys -t "${SESSION}:0.0" \
-  "cd '$DEPS_DIR' && HERMES_WEBUI_AGENT_DIR='$AGENT_DIR' HERMES_WEBUI_HOST='$HOST' HERMES_WEBUI_PORT='$PORT' HERMES_WEBUI_SKIP_ONBOARDING='$HERMES_WEBUI_SKIP_ONBOARDING' HERMES_WEBUI_FOREGROUND=1 PYTHONPATH='$AGENT_DIR'\${PYTHONPATH:+:\$PYTHONPATH} python3 bootstrap.py --foreground --host '$HOST' --port '$PORT' --no-browser" C-m
+
+# Port is positional (not --port). See upstream bootstrap.py parse_args().
+# Use a small launcher script so quoting stays simple across tmux send-keys.
+LAUNCHER="$DEPS_DIR/.cursor-launch-webui.sh"
+cat > "$LAUNCHER" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$DEPS_DIR"
+export HERMES_WEBUI_AGENT_DIR="$AGENT_DIR"
+export HERMES_WEBUI_HOST="$HOST"
+export HERMES_WEBUI_PORT="$PORT"
+export HERMES_WEBUI_SKIP_ONBOARDING="$HERMES_WEBUI_SKIP_ONBOARDING"
+export HERMES_WEBUI_FOREGROUND=1
+export PYTHONPATH="$AGENT_DIR\${PYTHONPATH:+:\$PYTHONPATH}"
+EOF
+if [[ -n "${HERMES_WEBUI_PYTHON:-}" ]]; then
+  echo "export HERMES_WEBUI_PYTHON=\"$HERMES_WEBUI_PYTHON\"" >> "$LAUNCHER"
+fi
+cat >> "$LAUNCHER" <<EOF
+exec python3 bootstrap.py --foreground --host "$HOST" --no-browser --skip-agent-install $PORT
+EOF
+chmod +x "$LAUNCHER"
+
+tmux_cmd send-keys -t "${SESSION}:0.0" "bash '$LAUNCHER'" C-m
 
 ok=0
-for _ in $(seq 1 180); do
+# Bootstrap may create a venv and install deps on first run — allow several minutes.
+for _ in $(seq 1 360); do
   code=$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 1 "http://${HOST}:${PORT}/health" 2>/dev/null || echo 000)
-  if [[ "$code" == "200" ]]; then ok=1; break; fi
+  if [[ "$code" == "200" ]]; then
+    ok=1
+    break
+  fi
   sleep 0.5
 done
 
@@ -62,6 +98,7 @@ if [[ "$ok" -eq 1 ]]; then
   echo "  Health: http://${HOST}:${PORT}/health"
   echo "  Agent:  $AGENT_DIR"
   echo "  Clone:  $DEPS_DIR"
+  echo "  Python: ${HERMES_WEBUI_PYTHON:-system python3}"
   echo
   echo "Open http://${HOST}:${PORT}/ (forward port ${PORT} if remote)."
   echo "Chat uses Hermes CLI/agent APIs — not Marko /agui and not CopilotKit."
