@@ -46,12 +46,23 @@ Reset password later:
 
 ### Make chat work (required)
 
-ACP “online” only means `hermes acp` spawns. Sending a message needs a provider:
+ACP “online” only means `hermes acp` spawns. Sending a message needs a provider.
+
+**Default: Cursor Composer proxy** (OpenAI-compatible on `:4646` via `agent` CLI):
 
 ```bash
+bash scripts/start-composer-proxy.sh     # prints a cursor.com login URL if needed
+# open the login URL once, then:
+bash scripts/configure-hermes-composer.sh
+# or just: bash scripts/start-aionui-hermes.sh   # does both when HERMES_USE_COMPOSER_PROXY=1
+```
+
+Or a normal API key:
+
+```bash
+HERMES_USE_COMPOSER_PROXY=0
 export OPENROUTER_API_KEY=sk-or-...   # or OPENAI_API_KEY / ANTHROPIC_API_KEY
 bash scripts/configure-hermes-provider.sh
-# or: npm run configure:hermes-provider
 ```
 
 ### Select Hermes

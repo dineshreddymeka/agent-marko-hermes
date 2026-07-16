@@ -75,8 +75,13 @@ $(printf '%q' "${INSTALL_DIR}/aionui-web") start --port $(printf '%q' "${AIONUI_
   fi
 fi
 
-# Auto-configure provider from env when possible (makes chat actually work)
-if [[ -n "${OPENROUTER_API_KEY:-}${OPENAI_API_KEY:-}${ANTHROPIC_API_KEY:-}" ]]; then
+# Prefer Composer proxy (Cursor Agent CLI → OpenAI-compatible :4646).
+# Override with HERMES_USE_COMPOSER_PROXY=0 to use OpenRouter/OpenAI/Anthropic env keys.
+USE_COMPOSER="${HERMES_USE_COMPOSER_PROXY:-1}"
+if [[ "$USE_COMPOSER" == "1" ]]; then
+  bash "${ROOT}/scripts/start-composer-proxy.sh" || true
+  bash "${ROOT}/scripts/configure-hermes-composer.sh" || true
+elif [[ -n "${OPENROUTER_API_KEY:-}${OPENAI_API_KEY:-}${ANTHROPIC_API_KEY:-}" ]]; then
   bash "${ROOT}/scripts/configure-hermes-provider.sh" || true
 fi
 
