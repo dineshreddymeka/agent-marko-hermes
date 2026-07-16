@@ -13,6 +13,7 @@
     "build:ui": "npm run build -w app",
     "dev": "bash scripts/start-hermes-ui.sh --skip-build",
     "start:hermes-ui": "bash scripts/start-hermes-ui.sh",
+    "start:assistant-ui": "bash scripts/start-assistant-ui-hermes.sh",
     "build": "npm run build:ui",
     "test": "npm run test -w app",
     "test:ui": "npm run test -w app",

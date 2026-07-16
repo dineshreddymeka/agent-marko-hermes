@@ -43,7 +43,18 @@ Open **http://127.0.0.1:9119/** (forward local port **9119** if previewing remot
 
 Swagger: http://127.0.0.1:9119/docs
 
-### Optional: Next.js HMR only (local iteration)
+### assistant-ui (AG-UI, open source)
+
+Free [assistant-ui](https://github.com/assistant-ui/assistant-ui) chat frontend over Hermes `/agui`:
+
+```bash
+bash scripts/start-assistant-ui-hermes.sh
+# → http://127.0.0.1:3000/
+```
+
+See [`docs/ASSISTANT_UI_HERMES.md`](docs/ASSISTANT_UI_HERMES.md).
+
+### Optional: Next.js HMR only (local Marko iteration)
 
 ```bash
 # Terminal A — Hermes API/UI backend
