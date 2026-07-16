@@ -19,3 +19,4 @@ hermes/hermes_cli/web_dist/
 node_modules/
 .hermes-web-smoke.log
 
+.chainlit/
