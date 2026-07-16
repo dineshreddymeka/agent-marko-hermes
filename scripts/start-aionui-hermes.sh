@@ -56,9 +56,13 @@ sleep 0.2
 # aionui-web start serves WebUI; aioncore is bundled. Hermes is detected via PATH.
 REMOTE_ARG=""
 [[ "$OPEN_REMOTE" == "1" ]] && REMOTE_ARG="--remote"
+# Expand PATH in this shell, then pass a concrete value into tmux. Do NOT leave
+# a literal '$PATH' in single quotes — aioncore inherits that broken PATH and
+# ACP children cannot find python3/bash via /usr/bin/env.
+AIONUI_PATH="${ROOT}/scripts/bin:${HOME}/.local/bin:${PATH}"
 tmux_cmd send-keys -t "$SESSION_UI:0.0" \
-  "export PATH='${ROOT}/scripts/bin:${HOME}/.local/bin:\$PATH' AIONUI_OPEN_BROWSER=0 && \
-'${INSTALL_DIR}/aionui-web' start --port '${AIONUI_PORT}' --data-dir '${DATA_DIR}' ${REMOTE_ARG} --no-open" C-m
+  "export PATH=$(printf '%q' "${AIONUI_PATH}") AIONUI_OPEN_BROWSER=0 && \
+$(printf '%q' "${INSTALL_DIR}/aionui-web") start --port $(printf '%q' "${AIONUI_PORT}") --data-dir $(printf '%q' "${DATA_DIR}") ${REMOTE_ARG} --no-open" C-m
 
 echo "Waiting for AionUi WebUI on :${AIONUI_PORT}…"
 ui_ok=0

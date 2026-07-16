@@ -1437,7 +1437,24 @@ class HermesACPAgent(acp.Agent):
             stream_delta_cb = None
             approval_cb = None
 
-        agent = state.agent
+        try:
+            agent = self.session_manager.ensure_agent(state)
+        except RuntimeError as exc:
+            with state.runtime_lock:
+                state.is_running = False
+                state.current_prompt_text = ""
+            from acp_adapter.session import _is_provider_not_configured_error
+            from acp.exceptions import RequestError
+
+            if _is_provider_not_configured_error(exc):
+                raise RequestError.auth_required(
+                    data={
+                        "details": str(exc),
+                        "authMethodId": TERMINAL_SETUP_AUTH_METHOD_ID,
+                    }
+                ) from exc
+            raise
+
         agent.tool_progress_callback = tool_progress_cb
         # ACP thought panes should not receive Hermes' local kawaii waiting/status
         # updates. Route provider/model reasoning deltas instead; if the provider

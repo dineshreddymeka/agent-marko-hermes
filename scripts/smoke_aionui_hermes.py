@@ -71,16 +71,20 @@ def main() -> int:
         if err:
             print(f"Last check:     {err}")
 
+    require_online = os.environ.get("AIONUI_SMOKE_REQUIRE_ONLINE", "1") == "1"
+    if hermes_agent and require_online and hermes_agent.get("status") != "online":
+        errors.append(
+            f"Hermes status is {hermes_agent.get('status')!r}, expected online "
+            f"({hermes_agent.get('last_check_error_message') or 'no error message'})"
+        )
+
     if errors:
         print("FAIL:")
         for e in errors:
             print(" -", e)
         return 1
 
-    print("OK: AionUi UI up; Hermes assistant + ACP agent detected")
-    if hermes_agent and hermes_agent.get("status") != "online":
-        print("NOTE: Hermes is detected but not online yet — configure a model:")
-        print("  hermes setup model")
+    print("OK: AionUi UI up; Hermes assistant + ACP agent online")
     return 0
 
 

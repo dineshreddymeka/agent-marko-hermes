@@ -68,8 +68,15 @@ Verified API surface (local WebUI, auth disabled in local mode):
 | Endpoint | Expect |
 |----------|--------|
 | `GET /api/assistants` | entry with `agent.acp_backend == "hermes"` |
-| `GET /api/agents/management` | `backend: hermes`, `args: ["acp"]`, `installed: true` |
+| `GET /api/agents/management` | `backend: hermes`, `args: ["acp"]`, `status: online` |
 | `PUT /api/agents/{id}/overrides` | `{"command_override":"<repo>/scripts/bin/hermes"}` |
+| `POST /api/agents/{id}/health-check` | `status: online` |
+
+### Fixes landed for “offline / disconnected”
+
+1. **Absolute shebang** on `scripts/bin/hermes` (`#!/usr/bin/python3`) — aioncore clears PATH and blocks PATH overrides.
+2. **PATH quoting** in `start-aionui-hermes.sh` — no more literal `$PATH` inherited by aioncore.
+3. **Deferred ACP agent** — `session/new` succeeds without a configured LLM provider; the agent is built on first prompt (`ensure_agent`). Health-check can mark Hermes **online** before `hermes setup model`.
 
 ## Env knobs
 
