@@ -25,9 +25,32 @@ Latency rules: same process for chat + REST; prod SPA served from Hermes `web_di
 agent-marko-hermes/
   hermes/           # Hermes Agent (Python)
   ui/               # Agent-Marko React app (Next.js)
+  chainlit_app/     # Alternate Chainlit UI → Hermes OpenAI proxy (this branch)
   packages/shared/  # shared TS types
   scripts/          # build/dev/smoke helpers
 ```
+
+## Alternate UI — Open WebUI + Hermes API server
+
+Left-rail shell (Hermes panel actions) + Open WebUI chat backed by Hermes agent:
+
+```bash
+bash scripts/start-openwebui-hermes.sh
+# → http://127.0.0.1:3200/  (shell) · :3000 (Open WebUI) · :8642 (API)
+```
+
+See [docs/OPENWEBUI_HERMES.md](docs/OPENWEBUI_HERMES.md).
+
+## Alternate UI — Chainlit + Hermes proxy
+
+On branch `cursor/chainlit-hermes-e2f3`, Chainlit against `hermes proxy`:
+
+```bash
+bash scripts/start-chainlit-hermes.sh
+# → http://127.0.0.1:8000/  (+ optional Cloudflare tunnel URL)
+```
+
+See [docs/CHAINLIT_HERMES.md](docs/CHAINLIT_HERMES.md).
 
 ## Quick start (dev) — one-hop, no proxy
 
