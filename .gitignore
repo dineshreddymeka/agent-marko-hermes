@@ -21,3 +21,4 @@ node_modules/
 
 .chainlit/
 open_webui_data/
+.webui_secret_key
