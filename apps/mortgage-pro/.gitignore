@@ -1,0 +1,9 @@
+node_modules
+dist
+.dev-server.pid
+.dev-server.log
+*.local
+.DS_Store
+.env
+.env.*
+!.env.example

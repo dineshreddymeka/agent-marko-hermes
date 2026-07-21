@@ -1,0 +1,106 @@
+:root {
+  --pp-ink: #132821;
+  --pp-ink-soft: #2a4038;
+  --pp-brass: #b8893a;
+  --pp-brass-deep: #8f6a28;
+  --pp-sea: #2f6b5c;
+  --pp-sea-soft: #4a8f7c;
+  --pp-mist: #e7efe9;
+  --pp-fog: #f3f7f4;
+  --pp-paper: #fbfcfb;
+  --pp-line: rgba(19, 40, 33, 0.12);
+  --pp-font-display: "Bricolage Grotesque", Georgia, serif;
+  --pp-font-body: "Source Sans 3", "Segoe UI", sans-serif;
+  --pp-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*,
+*::before,
+*::after {
+  -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  font-family: var(--pp-font-body);
+  color: var(--pp-ink);
+  background-color: var(--pp-fog);
+  background-image:
+    radial-gradient(ellipse 90% 55% at 8% -10%, rgba(184, 137, 58, 0.16), transparent 55%),
+    radial-gradient(ellipse 70% 50% at 92% 0%, rgba(47, 107, 92, 0.14), transparent 50%),
+    linear-gradient(180deg, #eef5f0 0%, var(--pp-fog) 42%, #e4ede7 100%),
+    repeating-linear-gradient(
+      -18deg,
+      transparent,
+      transparent 22px,
+      rgba(19, 40, 33, 0.015) 22px,
+      rgba(19, 40, 33, 0.015) 23px
+    );
+  background-attachment: fixed;
+}
+
+::selection {
+  background-color: rgba(184, 137, 58, 0.28);
+  color: var(--pp-ink);
+}
+
+@keyframes pp-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pp-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pp-underline {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.pp-rise {
+  animation: pp-rise 0.65s var(--pp-ease) both;
+}
+
+.pp-rise-delay {
+  animation: pp-rise 0.7s var(--pp-ease) 0.08s both;
+}
+
+.pp-fade-in {
+  animation: pp-fade 0.45s var(--pp-ease) both;
+}
+
+.pp-metric-pop {
+  animation: pp-rise 0.75s var(--pp-ease) 0.12s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pp-rise,
+  .pp-rise-delay,
+  .pp-fade-in,
+  .pp-metric-pop {
+    animation: none;
+  }
+}
