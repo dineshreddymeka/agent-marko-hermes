@@ -72,3 +72,4 @@ jobs:
           fi
           gh workflow run "Deploy to GitHub Pages" --repo dineshreddymeka/mortgage-pro --ref main
           echo "Triggered deploy. Live URL: https://dineshreddymeka.github.io/mortgage-pro/"
+
