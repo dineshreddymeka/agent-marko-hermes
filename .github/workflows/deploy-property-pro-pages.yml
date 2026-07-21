@@ -1,0 +1,56 @@
+# Deploy apps/mortgage-pro to GitHub Pages for this repository.
+# Live: https://dineshreddymeka.github.io/agent-marko-hermes/
+#
+# For https://dineshreddymeka.github.io/mortgage-pro/ use the sync-mortgage-pro-to-fork
+# workflow with secret MORTGAGE_PRO_TOKEN (or grant Cursor App write on the fork).
+
+name: Deploy Property Pro Pages
+
+on:
+  push:
+    branches: ["main", "master"]
+    paths:
+      - "apps/mortgage-pro/**"
+      - ".github/workflows/deploy-property-pro-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: property-pro-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/mortgage-pro/package-lock.json
+
+      - name: Install and build Property Pro
+        working-directory: apps/mortgage-pro
+        run: npm ci && npm run build
+        env:
+          VITE_BASE_PATH: /${{ github.event.repository.name }}/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/mortgage-pro/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
