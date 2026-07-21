@@ -19,7 +19,7 @@ A **single-page web app** for modeling **mortgages**, **rental cash flow**, and 
 ## Quick start
 
 ```bash
-git clone git@github.com:hema986/mortgage-pro.git
+git clone git@github.com:dineshreddymeka/mortgage-pro.git
 cd mortgage-pro
 npm install
 npm run dev
@@ -58,15 +58,15 @@ npm run preview
 
 The workflow [Deploy to GitHub Pages](.github/workflows/deploy-pages.yml) builds the app with `npm ci && npm run build` and publishes the `dist/` folder whenever you push to `main` (or when you run the workflow manually).
 
-**Live URL (after setup):** [https://hema986.github.io/mortgage-pro/](https://hema986.github.io/mortgage-pro/)
+**Live URL (after setup):** [https://dineshreddymeka.github.io/mortgage-pro/](https://dineshreddymeka.github.io/mortgage-pro/)
 
 ### First-time setup on GitHub
 
 You only need to do this once per repository:
 
-1. Open **[repo Settings → Pages](https://github.com/hema986/mortgage-pro/settings/pages)**.
+1. Open **[repo Settings → Pages](https://github.com/dineshreddymeka/mortgage-pro/settings/pages)**.
 2. Under **Build and deployment → Source**, choose **GitHub Actions** (not “Deploy from a branch”).
-3. Open the **[Actions](https://github.com/hema986/mortgage-pro/actions)** tab and confirm the **Deploy to GitHub Pages** workflow run is green. If GitHub asks to approve the `github-pages` environment the first time, approve it.
+3. Open the **[Actions](https://github.com/dineshreddymeka/mortgage-pro/actions)** tab and confirm the **Deploy to GitHub Pages** workflow run is green. If GitHub asks to approve the `github-pages` environment the first time, approve it.
 4. After a successful deploy, open the live URL above. It can take a minute for the CDN to update.
 
 To deploy again: push to `main`, or go to **Actions → Deploy to GitHub Pages → Run workflow**.
