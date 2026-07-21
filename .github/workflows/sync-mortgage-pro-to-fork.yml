@@ -40,13 +40,14 @@ jobs:
           set -euo pipefail
           WORK="$(mktemp -d)"
           git clone --depth 1 "https://x-access-token:${MORTGAGE_PRO_TOKEN}@github.com/dineshreddymeka/mortgage-pro.git" "$WORK"
-          rsync -a --delete \
-            --exclude '.git' \
-            --exclude 'node_modules' \
-            --exclude 'dist' \
-            --exclude '.dev-server.pid' \
-            --exclude '.dev-server.log' \
-            apps/mortgage-pro/ "$WORK/"
+          # Replace tracked tree with apps/mortgage-pro (keep .git)
+          find "$WORK" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          tar -C apps/mortgage-pro \
+            --exclude='node_modules' \
+            --exclude='dist' \
+            --exclude='.dev-server.pid' \
+            --exclude='.dev-server.log' \
+            -cf - . | tar -C "$WORK" -xf -
           cd "$WORK"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

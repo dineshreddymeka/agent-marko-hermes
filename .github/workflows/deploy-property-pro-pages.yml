@@ -1,8 +1,9 @@
-# Deploy apps/mortgage-pro to GitHub Pages for this repository.
-# Live: https://dineshreddymeka.github.io/agent-marko-hermes/
+# Build apps/mortgage-pro and publish to the gh-pages branch.
+# After the first run, set Settings → Pages → Deploy from a branch → gh-pages / (root)
+# Live (this repo): https://dineshreddymeka.github.io/agent-marko-hermes/
 #
-# For https://dineshreddymeka.github.io/mortgage-pro/ use the sync-mortgage-pro-to-fork
-# workflow with secret MORTGAGE_PRO_TOKEN (or grant Cursor App write on the fork).
+# Preferred fork URL https://dineshreddymeka.github.io/mortgage-pro/ uses
+# sync-mortgage-pro-to-fork.yml + secret MORTGAGE_PRO_TOKEN.
 
 name: Deploy Property Pro Pages
 
@@ -15,16 +16,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: property-pro-pages
   cancel-in-progress: true
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,16 +40,10 @@ jobs:
         env:
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
 
-      - uses: actions/upload-pages-artifact@v3
+      - name: Publish to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: apps/mortgage-pro/dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: apps/mortgage-pro/dist
+          force_orphan: true
+          enable_jekyll: false
