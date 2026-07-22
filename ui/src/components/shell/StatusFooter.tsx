@@ -48,7 +48,7 @@ export function ContextRing({ used = 0, max = 128_000 }: ContextRingProps) {
 }
 
 type HealthLlm = {
-  mode: 'mock' | 'live'
+  mode: 'mock' | 'configured'
   mock: boolean
   model: string | null
 }
@@ -96,7 +96,7 @@ export function StatusFooter() {
   const modeHint = llm?.mock
     ? 'Mock LLM (HERMES_MOCK_LLM)'
     : llm
-      ? 'Live LLM'
+      ? 'LLM configured; availability is verified when a message is sent'
       : undefined
 
   return (
@@ -104,7 +104,7 @@ export function StatusFooter() {
       <span title={modeHint ?? labelTitle(rawModel, modelDisplay)}>
         {llm?.mock ? 'Mock LLM' : modelDisplay}
         {llm && !llm.mock ? (
-          <span className="ml-1 text-fg-muted/70">· live</span>
+          <span className="ml-1 text-fg-muted/70">· configured</span>
         ) : null}
       </span>
       <div className="flex items-center gap-2">

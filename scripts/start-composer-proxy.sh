@@ -14,6 +14,7 @@ PORT="${COMPOSER_PROXY_PORT:-4646}"
 SESSION=composer-proxy
 LOGIN_SESSION=composer-login
 BASE_URL="http://127.0.0.1:${PORT}/v1"
+LOGIN_WAIT_SECONDS="${COMPOSER_LOGIN_WAIT_SECONDS:-300}"
 
 ensure_agent_cli() {
   if command -v agent >/dev/null 2>&1; then
@@ -75,6 +76,25 @@ if ! agent_really_logged_in; then
     fi
     sleep 0.25
   done
+  echo ">>> Waiting up to ${LOGIN_WAIT_SECONDS}s for authorization…"
+  authenticated=0
+  for _ in $(seq 1 $((LOGIN_WAIT_SECONDS / 2))); do
+    if agent_really_logged_in; then
+      authenticated=1
+      break
+    fi
+    sleep 2
+  done
+  if [[ "$authenticated" -ne 1 ]]; then
+    # /health and /v1/models are static in cursor-agent-api-proxy and return
+    # success even when every completion will fail authentication. Do not leave
+    # that misleadingly "healthy" process running.
+    cursor-agent-api stop >/dev/null 2>&1 || true
+    echo "error: Cursor Agent authorization did not complete; Composer proxy was not started." >&2
+    echo "Open the URL above, or set CURSOR_API_KEY, then rerun this script." >&2
+    exit 2
+  fi
+  echo "✓ Cursor Agent auth ready for Composer"
 else
   echo "✓ Cursor Agent auth ready for Composer"
 fi

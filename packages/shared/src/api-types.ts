@@ -408,7 +408,7 @@ export interface HealthResponse {
   version: string
   db: boolean
   llm: {
-    mode: 'mock' | 'live'
+    mode: 'mock' | 'configured' | 'live'
     mock: boolean
     model: string | null
   }
@@ -768,7 +768,7 @@ export interface DebugHealthResponse {
   }
   llm: {
     baseUrl: string
-    mode: 'mock' | 'live'
+    mode: 'mock' | 'configured' | 'live'
     mock: boolean
   }
   memory: Record<string, unknown>

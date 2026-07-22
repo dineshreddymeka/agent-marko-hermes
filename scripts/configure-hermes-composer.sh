@@ -10,6 +10,21 @@ BASE_URL="${HERMES_COMPOSER_PROXY_URL:-http://127.0.0.1:${PORT}/v1}"
 MODEL="${HERMES_MODEL:-auto}"
 API_KEY="${OPENAI_API_KEY:-${CURSOR_API_KEY:-not-needed}}"
 
+# cursor-agent-api-proxy serves a static model catalog even when its spawned
+# Agent CLI cannot authenticate. Refuse to persist a backend that only appears
+# healthy but cannot execute completions.
+if ! command -v agent >/dev/null 2>&1 ||
+   ! agent --list-models 2>/dev/null | grep -qiE 'composer|auto|gpt|claude|opus|sonnet'; then
+  echo "error: Cursor Agent is not authenticated." >&2
+  echo "Run 'bash scripts/start-composer-proxy.sh' and complete its login first." >&2
+  exit 2
+fi
+if ! curl -fsS --connect-timeout 2 "${BASE_URL%/v1}/health" >/dev/null; then
+  echo "error: Composer proxy is not running at ${BASE_URL}." >&2
+  echo "Run 'bash scripts/start-composer-proxy.sh' first." >&2
+  exit 2
+fi
+
 # Persist for aioncore-spawned hermes (loads ~/.hermes/.env)
 HERMES_HOME="${HERMES_HOME:-${HOME}/.hermes}"
 mkdir -p "$HERMES_HOME"
