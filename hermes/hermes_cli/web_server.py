@@ -17442,7 +17442,10 @@ async def marko_health():
         "authRequired": gated,
         "backend": "hermes",
         "llm": {
-            "mode": "mock" if mock else "live",
+            # Configuration alone cannot prove the upstream can complete a
+            # request (OAuth proxies may expose healthy catalog endpoints while
+            # unauthenticated). Never advertise an unprobed backend as "live".
+            "mode": "mock" if mock else "configured",
             "mock": mock,
             "model": model,
         },
