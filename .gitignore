@@ -18,6 +18,7 @@ hermes/hermes_cli/web_dist/
 
 node_modules/
 .hermes-web-smoke.log
+.deps/
 
 # Nested clone of forked Property Pro (work happens under apps/mortgage-pro)
 /mortgage-pro/

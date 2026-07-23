@@ -43,6 +43,17 @@ Open **http://127.0.0.1:9119/** (forward local port **9119** if previewing remot
 
 Swagger: http://127.0.0.1:9119/docs
 
+### Third-party Hermes WebUI (no AG-UI / A2UI)
+
+Free OSS chat UI from [nesquena/hermes-webui](https://github.com/nesquena/hermes-webui), pointed at this repo’s `hermes/`:
+
+```bash
+bash scripts/start-hermes-webui.sh
+# → http://127.0.0.1:8787/
+```
+
+See [`docs/HERMES_WEBUI.md`](docs/HERMES_WEBUI.md). This path does **not** use Marko, AG-UI, or A2UI.
+
 ### Optional: Next.js HMR only (local iteration)
 
 ```bash
